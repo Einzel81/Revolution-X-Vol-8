@@ -133,4 +133,130 @@ async def resolve_alert(
     db: Session = Depends(get_db),
     current_user = Depends(require_admin)
 ):
-    """حل تنبيه
+    """حل تنبيه"""
+    monitor = PerformanceMonitor(db)
+    monitor.resolve_alert(alert_id)
+    return {"message": "تم حل التنبيه"}
+
+@router.get("/changes/pending", response_model=List[CodeChange])
+async def get_pending_changes(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """الحصول على التغييرات المعلقة"""
+    fixer = AutoFixer(db)
+    return fixer.get_pending_changes()
+
+@router.post("/changes/{change_id}/approve")
+async def approve_change(
+    change_id: int,
+    request: ChangeApprovalRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_admin)
+):
+    """الموافقة على تغيير"""
+    fixer = AutoFixer(db)
+    
+    if request.approved:
+        await fixer.approve_change(change_id, current_user.username)
+        return {"message": "تمت الموافقة على التغيير", "change_id": change_id}
+    else:
+        await fixer.reject_change(change_id)
+        return {"message": "تم رفض التغيير", "change_id": change_id}
+
+@router.get("/history")
+async def get_change_history(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """سجل التغييرات"""
+    from backend.app.guardian.models import CodeChangeDB
+    
+    changes = db.query(CodeChangeDB).order_by(
+        CodeChangeDB.created_at.desc()
+    ).limit(limit).all()
+    
+    return {
+        "changes": [CodeChange.from_orm(c) for c in changes],
+        "total": len(changes)
+    }
+
+@router.post("/trigger-analysis")
+async def trigger_analysis(
+    file_path: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_admin)
+):
+    """تشغيل تحليل يدوي"""
+    analyzer = CodeAnalyzer(db)
+    
+    # تشغيل في الخلفية
+    background_tasks.add_task(analyzer.analyze_strategy, file_path)
+    
+    return {
+        "message": "تم بدء التحليل في الخلفية",
+        "file": file_path
+    }
+
+@router.get("/knowledge/patterns")
+async def get_knowledge_patterns(
+    pattern_type: Optional[str] = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """الحصول على أنماط قاعدة المعرفة"""
+    kb = KnowledgeBase(db)
+    
+    query = db.query(KnowledgePatternDB)
+    if pattern_type:
+        query = query.filter(KnowledgePatternDB.pattern_type == pattern_type)
+        
+    patterns = query.order_by(
+        KnowledgePatternDB.success_rate.desc()
+    ).limit(limit).all()
+    
+    return {
+        "patterns": [
+            {
+                "id": p.id,
+                "type": p.pattern_type,
+                "description": p.description,
+                "success_rate": p.success_rate,
+                "usage_count": p.usage_count
+            }
+            for p in patterns
+        ]
+    }
+
+@router.get("/trends")
+async def get_performance_trends(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """اتجاهات الأداء"""
+    kb = KnowledgeBase(db)
+    return kb.get_performance_trends()
+
+@router.post("/start-monitoring")
+async def start_monitoring(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_admin)
+):
+    """بدء المراقبة"""
+    monitor = PerformanceMonitor(db)
+    await monitor.start()
+    return {"message": "تم بدء المراقبة"}
+
+@router.post("/stop-monitoring")
+async def stop_monitoring(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_admin)
+):
+    """إيقاف المراقبة"""
+    monitor = PerformanceMonitor(db)
+    await monitor.stop()
+    return {"message": "تم إيقاف المراقبة"}
