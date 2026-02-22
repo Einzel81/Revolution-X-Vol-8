@@ -1,0 +1,33 @@
+Ffrom sqlalchemy import Column, String, Float, DateTime, ForeignKey, Enum, Text, JSON
+from sqlalchemy.dialects.postgresql import UUID
+from app.database.connection import Base
+import enum
+import datetime
+
+class AlertType(str, enum.Enum):
+    PRICE = "price"
+    INDICATOR = "indicator"
+    NEWS = "news"
+    RISK = "risk"
+
+class AlertCondition(str, enum.Enum):
+    ABOVE = "above"
+    BELOW = "below"
+    CROSSING = "crossing"
+    PERCENT_CHANGE = "percent_change"
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=lambda: str(__import__('uuid').uuid4()))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    type = Column(Enum(AlertType), nullable=False)
+    symbol = Column(String, nullable=False)
+    condition = Column(Enum(AlertCondition), nullable=False)
+    value = Column(Float, nullable=False)
+    message_template = Column(Text, nullable=True)
+    is_active = Column(String, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    alert_metadata = Column(JSON, default=dict)
