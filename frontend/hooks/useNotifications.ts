@@ -1,118 +1,149 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useWebSocket } from "./useWebSocket";
+import { useCallback, useEffect, useState } from "react";
 
-interface Notification {
+//
+// Types
+//
+
+export type NotificationType = "trade" | "price" | "system" | "ai";
+
+export interface AppNotification {
   id: string;
-  type: "trade" | "price" | "system" | "ai";
+  type: NotificationType;
   title: string;
   message: string;
-  priority: "low" | "medium" | "high";
-  read: boolean;
   timestamp: string;
-  data?: Record<string, any>;
+  read?: boolean;
 }
 
-interface NotificationPreferences {
-  enabled: boolean;
-  sound: boolean;
-  desktop: boolean;
+export interface NotificationPreferences {
   filters: {
     trades: boolean;
     prices: boolean;
     system: boolean;
     ai: boolean;
   };
+  sound: boolean;
+  push: boolean;
 }
 
+//
+// Helper: Map notification.type ? filters key
+//
+
+function mapNotificationTypeToFilterKey(
+  t: NotificationType
+): keyof NotificationPreferences["filters"] {
+  switch (t) {
+    case "trade":
+      return "trades";
+    case "price":
+      return "prices";
+    case "system":
+      return "system";
+    case "ai":
+      return "ai";
+    default:
+      return "system";
+  }
+}
+
+//
+// Hook
+//
+
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [preferences, setPreferences] = useState<NotificationPreferences>({
-    enabled: true,
-    sound: true,
-    desktop: false,
     filters: {
       trades: true,
       prices: true,
       system: true,
       ai: true,
     },
+    sound: true,
+    push: false,
   });
-  const { lastMessage } = useWebSocket();
 
-  // Request notification permission
-  useEffect(() => {
-    if ("Notification" in window && preferences.desktop) {
-      Notification.requestPermission();
-    }
-  }, [preferences.desktop]);
+  //
+  // Add notification
+  //
 
-  // Handle incoming notifications
-  useEffect(() => {
-    if (!lastMessage) return;
+  const addNotification = useCallback(
+    (notification: AppNotification) => {
+      const filterKey = mapNotificationTypeToFilterKey(notification.type);
 
-    const data = JSON.parse(lastMessage);
-    if (data.type === "notification" && preferences.enabled) {
-      const notification: Notification = {
-        id: Math.random().toString(36).substring(2, 9),
-        ...data.payload,
-        read: false,
-        timestamp: new Date().toISOString(),
-      };
+      // Check filters safely
+      if (!preferences.filters[filterKey]) return;
 
-      // Check filters
-      if (!preferences.filters[notification.type]) return;
+      setNotifications((prev) => [
+        { ...notification, read: false },
+        ...prev,
+      ]);
+    },
+    [preferences.filters]
+  );
 
-      setNotifications((prev) => [notification, ...prev]);
-
-      // Show desktop notification
-      if (preferences.desktop && "Notification" in window) {
-        new Notification(notification.title, {
-          body: notification.message,
-          icon: "/icon.png",
-        });
-      }
-
-      // Play sound
-      if (preferences.sound) {
-        const audio = new Audio("/notification.mp3");
-        audio.play().catch(() => {});
-      }
-    }
-  }, [lastMessage, preferences]);
+  //
+  // Mark as read
+  //
 
   const markAsRead = useCallback((id: string) => {
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      prev.map((n) =>
+        n.id === id ? { ...n, read: true } : n
+      )
     );
   }, []);
 
-  const markAllAsRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }, []);
-
-  const clearNotification = useCallback((id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  }, []);
+  //
+  // Clear all
+  //
 
   const clearAll = useCallback(() => {
     setNotifications([]);
   }, []);
 
-  const updatePreferences = useCallback((newPrefs: Partial<NotificationPreferences>) => {
-    setPreferences((prev) => ({ ...prev, ...newPrefs }));
-  }, []);
+  //
+  // Update preferences
+  //
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const updatePreferences = useCallback(
+    (newPrefs: Partial<NotificationPreferences>) => {
+      setPreferences((prev) => ({
+        ...prev,
+        ...newPrefs,
+        filters: {
+          ...prev.filters,
+          ...(newPrefs.filters ?? {}),
+        },
+      }));
+    },
+    []
+  );
+
+  //
+  // Optional: Example WebSocket listener
+  //
+
+  useEffect(() => {
+    // Example stub listener (replace with real WS if needed)
+    // const ws = new WebSocket("wss://your-endpoint");
+
+    // ws.onmessage = (event) => {
+    //   const data: AppNotification = JSON.parse(event.data);
+    //   addNotification(data);
+    // };
+
+    // return () => ws.close();
+  }, [addNotification]);
 
   return {
     notifications,
-    unreadCount,
     preferences,
+    addNotification,
     markAsRead,
-    markAllAsRead,
-    clearNotification,
     clearAll,
     updatePreferences,
   };

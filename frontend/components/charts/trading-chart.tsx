@@ -177,7 +177,7 @@ export function TradingChart({ symbol, timeframe }: TradingChartProps) {
       
       if (candlestickSeriesRef.current) {
         candlestickSeriesRef.current.update({
-          time: candle.timestamp / 1000,
+        time: (Math.floor(candle.timestamp / 1000) as unknown) as import("lightweight-charts").UTCTimestamp,
           open: candle.open,
           high: candle.high,
           low: candle.low,
@@ -187,7 +187,7 @@ export function TradingChart({ symbol, timeframe }: TradingChartProps) {
       
       if (volumeSeriesRef.current) {
         volumeSeriesRef.current.update({
-          time: candle.timestamp / 1000,
+          time: (Math.floor(candle.timestamp / 1000) as unknown) as import("lightweight-charts").UTCTimestamp,
           value: candle.volume,
           color: candle.close >= candle.open ? "rgba(34, 197, 94, 0.5)" : "rgba(239, 68, 68, 0.5)",
         });

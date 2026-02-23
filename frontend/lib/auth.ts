@@ -88,8 +88,10 @@ class AuthService {
     const response = await axios.post(`${API_URL}/api/v1/auth/login`, credentials);
     this.tokens = response.data;
     this.saveTokens();
-    return this.tokens;
-  }
+    if (!this.tokens) {
+  throw new Error("Authentication failed: missing tokens");
+}
+return this.tokens;  }
 
   async refreshToken(): Promise<void> {
     if (!this.tokens?.refresh_token) {

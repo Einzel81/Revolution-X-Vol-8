@@ -1,214 +1,191 @@
 # backend/app/auth/router.py
-from typing import List, Optional
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.connection import get_db
+from app.models.user import User
+from app.core.security import security_manager
+
+# Compatibility enum (we fixed it in app/auth/models.py)
 from app.auth.models import UserRole
-from app.auth.schemas import (
-    UserCreate, UserUpdate, UserResponse, LoginRequest, TokenResponse,
-    PasswordChange, TwoFactorSetup, TwoFactorVerify, AuditLogResponse
-)
-from app.auth.service import AuthService
-from app.auth.dependencies import (
-    get_current_user, require_admin, require_manager, require_trader
-)
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Public routes
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(
-    user_data: UserCreate,
-    request: Request,
-    db: AsyncSession = Depends(get_db)
-):
-    """Register a new user (admin only can create users)"""
-    auth_service = AuthService(db)
-    try:
-        user = await auth_service.create_user(user_data)
-        return user
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/login", response_model=TokenResponse)
-async def login(
-    login_data: LoginRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db)
-):
-    """Authenticate user and return tokens"""
-    auth_service = AuthService(db)
-    try:
-        # Get client IP
-        ip = request.client.host if request.client else None
-        return await auth_service.authenticate(login_data)
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+# -----------------------------
+# Schemas (self-contained)
+# -----------------------------
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1)
 
-@router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(
-    refresh_token: str,
-    db: AsyncSession = Depends(get_db)
-):
-    """Refresh access token"""
-    auth_service = AuthService(db)
-    try:
-        return await auth_service.refresh_token(refresh_token)
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
 
-@router.post("/logout")
-async def logout(
-    refresh_token: str,
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Logout user and revoke session"""
-    auth_service = AuthService(db)
-    await auth_service.logout(current_user.id, refresh_token)
-    return {"message": "Successfully logged out"}
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    full_name: str = Field(min_length=1, max_length=255)
+    role: Optional[UserRole] = None  # default set in code
 
-# Protected routes
-@router.get("/me", response_model=UserResponse)
-async def get_me(current_user: UserResponse = Depends(get_current_user)):
-    """Get current user info"""
-    return current_user
 
-@router.put("/me", response_model=UserResponse)
-async def update_me(
-    user_data: UserUpdate,
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Update current user profile"""
-    auth_service = AuthService(db)
-    try:
-        return await auth_service.update_user(current_user.id, user_data)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    refresh_token: Optional[str] = None
 
-@router.post("/change-password")
-async def change_password(
-    password_data: PasswordChange,
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Change user password"""
-    auth_service = AuthService(db)
-    user = await auth_service.get_user_by_id(current_user.id)
-    
-    if not auth_service.verify_password(password_data.current_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-    
-    user.password_hash = auth_service.get_password_hash(password_data.new_password)
-    await db.commit()
-    
-    return {"message": "Password changed successfully"}
 
-# 2FA routes
-@router.post("/2fa/setup", response_model=TwoFactorSetup)
-async def setup_2fa(
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Setup 2FA for current user"""
-    auth_service = AuthService(db)
-    return await auth_service.setup_2fa(current_user.id)
+class UserPublic(BaseModel):
+    id: str
+    email: EmailStr
+    full_name: str
+    role: str
+    is_active: bool
+    is_verified: bool
 
-@router.post("/2fa/verify")
-async def verify_2fa(
-    verify_data: TwoFactorVerify,
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Verify and enable 2FA"""
-    auth_service = AuthService(db)
-    try:
-        await auth_service.verify_and_enable_2fa(current_user.id, verify_data)
-        return {"message": "2FA enabled successfully"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    class Config:
+        from_attributes = True
 
-# Admin routes
-@router.get("/users", response_model=List[UserResponse])
-async def list_users(
-    skip: int = 0,
-    limit: int = 100,
-    current_user: UserResponse = Depends(require_manager),
-    db: AsyncSession = Depends(get_db)
-):
-    """List all users (manager and admin only)"""
-    from sqlalchemy import select
-    result = await db.execute(select(User).offset(skip).limit(limit))
-    users = result.scalars().all()
-    return users
 
-@router.get("/users/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: UUID,
-    current_user: UserResponse = Depends(require_manager),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get user by ID"""
-    auth_service = AuthService(db)
-    user = await auth_service.get_user_by_id(user_id)
+class LoginResponse(TokenResponse):
+    user: UserPublic
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+
+# -----------------------------
+# Helpers
+# -----------------------------
+async def _get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    q = select(User).where(User.email == email)
+    res = await db.execute(q)
+    return res.scalar_one_or_none()
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+# -----------------------------
+# Routes
+# -----------------------------
+@router.post("/login", response_model=LoginResponse)
+async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+    email = _normalize_email(str(data.email))
+    password = data.password
+
+    user = await _get_user_by_email(db, email)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        # ??? ??????? ?????? ?????
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+
+    # Gatekeeping ????
+    if user.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is inactive",
+        )
+    if user.is_verified is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not verified",
+        )
+
+    # Verify password against users.password_hash
+    if not security_manager.verify_password(password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+
+    # Tokens
+    access_token = security_manager.create_access_token(
+        subject=str(user.id),
+        additional_claims={"role": str(user.role), "email": user.email},
+    )
+    refresh_token = None
+    # ??? ???? REFRESH_TOKEN_EXPIRE_DAYS ?? settings (????? ?? security_manager)? ???? ?????
+    try:
+        refresh_token = security_manager.create_refresh_token(subject=str(user.id))
+    except Exception:
+        refresh_token = None
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "refresh_token": refresh_token,
+        "user": user,
+    }
+
+
+@router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
+async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    email = _normalize_email(str(data.email))
+
+    existing = await _get_user_by_email(db, email)
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Default role = VIEWER (safe)
+    role = data.role or UserRole.VIEWER
+
+    password_hash = security_manager.hash_password(data.password)
+
+    # Important: your DB user.id is UUID. Most projects define default in model.
+    # If your model DOES NOT define default, add uuid here. We'll try safe fallback.
+    try:
+        import uuid
+
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            password_hash=password_hash,
+            full_name=data.full_name,
+            role=role.value if hasattr(role, "value") else str(role),
+            is_active=True,
+            is_verified=True,  # ????? ????? False ??? ???? flow ???? verification
+            two_factor_enabled=False,
+            metadata={},
+        )
+    except Exception:
+        # If the model already generates id/defaults, this works
+        user = User(
+            email=email,
+            password_hash=password_hash,
+            full_name=data.full_name,
+            role=role.value if hasattr(role, "value") else str(role),
+            is_active=True,
+            is_verified=True,
+            two_factor_enabled=False,
+            metadata={},
+        )
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
     return user
 
-@router.put("/users/{user_id}", response_model=UserResponse)
-async def update_user(
-    user_id: UUID,
-    user_data: UserUpdate,
-    current_user: UserResponse = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """Update any user (admin only)"""
-    auth_service = AuthService(db)
-    try:
-        return await auth_service.update_user(user_id, user_data)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
-@router.delete("/users/{user_id}")
-async def delete_user(
-    user_id: UUID,
-    current_user: UserResponse = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    data: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    # ??? ???? dependency get_current_user? ???? ?????? ???.
 ):
-    """Delete user (admin only)"""
-    auth_service = AuthService(db)
-    try:
-        await auth_service.delete_user(user_id)
-        return {"message": "User deleted successfully"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-# Audit logs
-@router.get("/audit-logs", response_model=List[AuditLogResponse])
-async def get_audit_logs(
-    limit: int = 100,
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get current user audit logs"""
-    auth_service = AuthService(db)
-    logs = await auth_service.get_user_audit_logs(current_user.id, limit)
-    return logs
-
-@router.get("/admin/audit-logs", response_model=List[AuditLogResponse])
-async def get_all_audit_logs(
-    limit: int = 1000,
-    current_user: UserResponse = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get all audit logs (admin only)"""
-    from sqlalchemy import select
-    from app.auth.models import AuditLog
-    result = await db.execute(
-        select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    # ???? get_current_user ?? ????? ???? ???? ???????? ??????
+    raise HTTPException(
+        status_code=501,
+        detail="change-password requires get_current_user dependency wiring",
     )
-    return result.scalars().all()

@@ -1,9 +1,13 @@
 /**
  * Dynamic imports for code splitting and lazy loading
  */
+import React from "react";
 import dynamic from 'next/dynamic';
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import('./charts/RiskMetricsChart')
+import('./charts/RiskMetricsChart')
+import('./charts/RiskMetricsChart')
 
 // Loading fallback components
 const ChartSkeleton = () => (
@@ -160,6 +164,6 @@ export function preloadTradingComponents() {
 
 // Intersection Observer based lazy loading hook
 export function useLazyLoad<T extends HTMLElement>() {
-  // Implementation would go here
-  return { ref: null as React.RefObject<T>, isVisible: true };
+  const ref = React.useRef<T>(null);
+  return { ref, isVisible: true };
 }

@@ -118,7 +118,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: revolution-x-celery-worker
     restart: unless-stopped
     command: celery -A app.services.notification_service.celery_app worker --loglevel=info --concurrency=4 --hostname=worker@%h
     environment:
@@ -135,9 +134,6 @@ services:
       - api
     networks:
       - revolution-x-network
-    deploy:
-      replicas: ${CELERY_WORKERS:-2}
-
   # Celery Beat - Scheduler for periodic tasks
   celery-beat:
     build:

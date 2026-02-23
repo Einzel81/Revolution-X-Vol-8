@@ -44,6 +44,26 @@ export function TelegramConnect() {
     }
   };
 
+  const handleTestNotification = async (channel: "telegram" | string) => {
+  try {
+    // ???? ????? ????? ?????? ?? ??????? (???? ?????? ??? ??? ???? endpoint ?????)
+    const res = await fetch(`/api/v1/notifications/test?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || `${res.status} ${res.statusText}`);
+    }
+
+    // ??? ???? toast system? ??????? ???
+    console.log("Test notification sent:", channel);
+  } catch (err) {
+    console.error("Failed to send test notification:", err);
+  }
+};
+
   const handleDisconnect = async () => {
     setIsLoading(true);
     try {

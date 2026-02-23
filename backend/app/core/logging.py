@@ -55,7 +55,7 @@ def setup_logging():
     """Configure structured logging."""
     
     # Sentry integration
-    if settings.SENTRY_DSN:
+    if getattr(settings, "SENTRY_DSN", None):
         sentry_logging = LoggingIntegration(
             level=logging.INFO,
             event_level=logging.ERROR
