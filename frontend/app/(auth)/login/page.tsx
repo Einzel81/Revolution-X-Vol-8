@@ -22,23 +22,35 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await authService.login({
-        email,
-        password,
-        two_factor_code: requires2FA ? twoFactorCode : undefined,
-      });
-      router.push('/dashboard');
-    } catch (err: any) {
-      const message = err.response?.data?.detail || 'Login failed';
-      if (message.includes('2FA')) {
-        setRequires2FA(true);
-      } else {
-        setError(message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const tokens = await authService.login({
+    email,
+    password,
+    two_factor_code: requires2FA ? twoFactorCode : undefined,
+  });
+
+  // ???? cookie ???????/middleware
+  const r = await fetch("/api/auth/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_token: tokens.access_token }),
+  });
+
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j?.error || "Failed to set session cookie");
+  }
+
+  router.push("/dashboard");
+} catch (err: any) {
+  const message = err.response?.data?.detail || err.message || "Login failed";
+  if (String(message).includes("2FA")) {
+    setRequires2FA(true);
+  } else {
+    setError(message);
+  }
+} finally {
+  setLoading(false);
+}  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-revolution-dark p-4">

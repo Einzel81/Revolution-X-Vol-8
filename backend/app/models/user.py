@@ -1,26 +1,41 @@
 # backend/app/models/user.py
 
 import datetime
+import uuid
+import enum
+
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ENUM
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Enum as SAEnum
 
-from app.database.connection import Base  # ????? Base
+from app.database.connection import Base
 
-# ?????? ENUM ??????? ?? PostgreSQL ???? ????? ????? ????
-UserRoleEnum = ENUM(name="userrole", create_type=False)
+
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    manager = "manager"
+    trader = "trader"
+    viewer = "viewer"
+
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     email = Column(String(255), unique=True, index=True, nullable=False)
 
-    # ? ??? ?????? ??????? ?? DB
+    # password hash stored in DB
     password_hash = Column(String(255), nullable=False)
 
     full_name = Column(String(255), nullable=False)
 
-    role = Column(UserRoleEnum, nullable=False)
+    # CHECK constraint instead of Postgres ENUM type (simpler in dev)
+    role = Column(
+        SAEnum(UserRole, name="userrole", create_constraint=True),
+        nullable=False,
+        default=UserRole.trader,
+    )
 
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
@@ -34,5 +49,5 @@ class User(Base):
 
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
-    # ?? metadata ??? ????? ?? SQLAlchemy ? ????? ???? ??? ?? ??????
+    # keep DB column name "metadata"
     metadata_json = Column("metadata", JSONB, nullable=True)

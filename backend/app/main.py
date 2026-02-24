@@ -43,7 +43,7 @@ allowed_origins += [
 
 # ????? ??????? + ?????
 allowed_origins = sorted(set([o.strip() for o in allowed_origins if isinstance(o, str) and o.strip()]))
-
+print("CORS allowed_origins =>", allowed_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,

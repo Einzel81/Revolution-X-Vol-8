@@ -84,7 +84,8 @@ class SecurityManager:
     
     def create_refresh_token(self, subject: Union[str, int]) -> str:
         """Create JWT refresh token."""
-        expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        days = int(getattr(settings, "REFRESH_TOKEN_EXPIRE_DAYS", 30))
+        expire = datetime.utcnow() + timedelta(days=days)
         
         to_encode = {
             "exp": expire,
