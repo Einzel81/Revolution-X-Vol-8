@@ -1,19 +1,19 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu,
-  X,
   Home,
   BarChart3,
   Target,
   Settings,
-  Bell,
   User,
   TrendingUp,
   Shield,
-  Zap
+  Zap,
+  Activity,
+  Languages,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -21,23 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { AlertCenter } from "@/components/notifications/alert-center";
 import { ToastProvider } from "@/components/notifications/toast-provider";
+import { useLanguage } from "@/components/i18n/LanguageProvider";
 
-const sidebarItems = [
-  { icon: Home, label: "الرئيسية", href: "/dashboard" },
-  { icon: BarChart3, label: "الرسوم البيانية", href: "/dashboard/charts" },
-  { icon: Target, label: "الفرص", href: "/dashboard/scanner" },
-  { icon: TrendingUp, label: "المراكز", href: "/dashboard/positions" },
-  { icon: Shield, label: "DXY Guardian", href: "/dashboard/dxy" },
-  { icon: Zap, label: "الذكاء الاصطناعي", href: "/dashboard/ai" },
-  { icon: Settings, label: "الإعدادات", href: "/dashboard/settings" },
-];
-
-const bottomNavItems = [
-  { icon: Home, label: "الرئيسية", href: "/dashboard" },
-  { icon: BarChart3, label: "الرسوم", href: "/dashboard/charts" },
-  { icon: Target, label: "الفرص", href: "/dashboard/scanner" },
-  { icon: User, label: "حسابي", href: "/dashboard/profile" },
-];
+type NavItem = {
+  icon: any;
+  labelKey: string;
+  href: string;
+};
 
 export default function DashboardLayout({
   children,
@@ -48,12 +38,51 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
+  const { lang, dir, cycleLang, t } = useLanguage();
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024);
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
+
+  // Sidebar (Main)
+  const sidebarItems: NavItem[] = useMemo(
+    () => [
+      { icon: Home, labelKey: "nav.overview", href: "/dashboard" },
+      { icon: BarChart3, labelKey: "nav.charts", href: "/dashboard/charts" },
+      { icon: Target, labelKey: "nav.scanner", href: "/dashboard/scanner" },
+      { icon: TrendingUp, labelKey: "nav.positions", href: "/dashboard/positions" },
+      // ? NEW: Execution Health (System #8)
+      { icon: Activity, labelKey: "nav.execution", href: "/dashboard/execution" },
+
+      { icon: Shield, labelKey: "nav.dxy", href: "/dashboard/dxy" },
+      { icon: Zap, labelKey: "nav.ai", href: "/dashboard/ai" },
+      { icon: Settings, labelKey: "nav.settings", href: "/dashboard/settings" },
+    ],
+    []
+  );
+
+  // Bottom nav (Mobile)
+  const bottomNavItems: NavItem[] = useMemo(
+    () => [
+      { icon: Home, labelKey: "nav.overview", href: "/dashboard" },
+      { icon: BarChart3, labelKey: "nav.charts", href: "/dashboard/charts" },
+      { icon: Target, labelKey: "nav.scanner", href: "/dashboard/scanner" },
+      // optional: execution instead of profile (choose what you prefer)
+      { icon: Activity, labelKey: "nav.execution", href: "/dashboard/execution" },
+    ],
+    []
+  );
+
+  const currentTitle = useMemo(() => {
+    const hit = sidebarItems.find((x) => x.href === pathname);
+    return hit ? t(hit.labelKey) : t("dashboard.title");
+  }, [pathname, sidebarItems, t]);
+
+  const isRtl = dir === "rtl";
+  const desktopSidebarWidth = "w-64";
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -65,7 +94,7 @@ export default function DashboardLayout({
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Revolution X</h1>
-            <p className="text-xs text-slate-400">نظام التداول المتقدم</p>
+            <p className="text-xs text-slate-400">{t("app.tagline")}</p>
           </div>
         </Link>
       </div>
@@ -74,6 +103,8 @@ export default function DashboardLayout({
       <nav className="flex-1 p-4 space-y-1">
         {sidebarItems.map((item) => {
           const isActive = pathname === item.href;
+          const Icon = item.icon;
+
           return (
             <Link
               key={item.href}
@@ -85,12 +116,12 @@ export default function DashboardLayout({
                   : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
             >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
+              <Icon className="w-5 h-5" />
+              <span>{t(item.labelKey)}</span>
               {isActive && (
                 <motion.div
                   layoutId="activeIndicator"
-                  className="mr-auto w-1.5 h-1.5 rounded-full bg-white"
+                  className={`${isRtl ? "ml-auto" : "mr-auto"} w-1.5 h-1.5 rounded-full bg-white`}
                 />
               )}
             </Link>
@@ -105,8 +136,8 @@ export default function DashboardLayout({
             <User className="w-5 h-5 text-slate-400" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-white">المستخدم</p>
-            <p className="text-xs text-slate-400">متصل</p>
+            <p className="text-sm font-medium text-white">{t("user.label")}</p>
+            <p className="text-xs text-slate-400">{t("user.status")}</p>
           </div>
           <div className="w-2 h-2 rounded-full bg-green-500" />
         </div>
@@ -119,7 +150,11 @@ export default function DashboardLayout({
       <div className="min-h-screen bg-slate-900">
         {/* Desktop Sidebar */}
         {!isMobile && (
-          <aside className="fixed right-0 top-0 h-full w-64 bg-slate-900 border-l border-slate-800 z-40">
+          <aside
+            className={`fixed top-0 h-full ${desktopSidebarWidth} bg-slate-900 border-slate-800 z-40 ${
+              isRtl ? "right-0 border-l" : "left-0 border-r"
+            }`}
+          >
             <SidebarContent />
           </aside>
         )}
@@ -133,7 +168,11 @@ export default function DashboardLayout({
                   <Menu className="w-6 h-6 text-white" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="w-64 bg-slate-900 border-slate-800 p-0">
+
+              <SheetContent
+                side={isRtl ? "right" : "left"}
+                className="w-64 bg-slate-900 border-slate-800 p-0"
+              >
                 <SidebarContent />
               </SheetContent>
             </Sheet>
@@ -143,21 +182,44 @@ export default function DashboardLayout({
               <span className="font-bold text-white">Revolution X</span>
             </div>
 
-            <AlertCenter />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={cycleLang}
+                title={t("lang")}
+              >
+                <Languages className="w-5 h-5 text-slate-300" />
+              </Button>
+              <AlertCenter />
+            </div>
           </header>
         )}
 
         {/* Desktop Header */}
         {!isMobile && (
-          <header className="fixed top-0 left-0 right-64 h-16 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800 z-30 flex items-center justify-between px-6">
+          <header
+            className={`fixed top-0 h-16 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800 z-30 flex items-center justify-between px-6 ${
+              isRtl ? "left-0 right-64" : "left-64 right-0"
+            }`}
+          >
             <div>
-              <h2 className="text-lg font-semibold text-white">
-                {sidebarItems.find(item => item.href === pathname)?.label || "لوحة التحكم"}
-              </h2>
+              <h2 className="text-lg font-semibold text-white">{currentTitle}</h2>
             </div>
-            <div className="flex items-center gap-4">
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={cycleLang}
+                title={t("lang")}
+              >
+                <Languages className="w-5 h-5 text-slate-300" />
+              </Button>
+
               <AlertCenter />
-              <Button variant="ghost" size="icon">
+
+              <Button variant="ghost" size="icon" title={t("nav.settings")}>
                 <Settings className="w-5 h-5 text-slate-400" />
               </Button>
             </div>
@@ -167,7 +229,11 @@ export default function DashboardLayout({
         {/* Main Content */}
         <main
           className={`${
-            isMobile ? "pt-20 pb-24 px-4" : "pr-64 pt-20 px-6"
+            isMobile
+              ? "pt-20 pb-24 px-4"
+              : isRtl
+              ? "pr-64 pt-20 px-6"
+              : "pl-64 pt-20 px-6"
           } min-h-screen`}
         >
           <AnimatePresence mode="wait">
@@ -189,16 +255,18 @@ export default function DashboardLayout({
             <div className="grid grid-cols-4 h-full">
               {bottomNavItems.map((item) => {
                 const isActive = pathname === item.href;
+                const Icon = item.icon;
+
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex flex-col items-center justify-center gap-1 transition-colors ${
+                    className={`relative flex flex-col items-center justify-center gap-1 transition-colors ${
                       isActive ? "text-blue-500" : "text-slate-400"
                     }`}
                   >
-                    <item.icon className="w-5 h-5" />
-                    <span className="text-[10px]">{item.label}</span>
+                    <Icon className="w-5 h-5" />
+                    <span className="text-[10px]">{t(item.labelKey)}</span>
                     {isActive && (
                       <motion.div
                         layoutId="mobileIndicator"

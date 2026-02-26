@@ -36,6 +36,34 @@ celery_app.conf.update(
     task_acks_late=True,
 )
 
+# Periodic tasks schedule (Celery Beat)
+celery_app.conf.beat_schedule = {
+    "refresh-dxy-context": {
+        "task": "app.market_data.dxy_tasks.refresh_dxy_context",
+        "schedule": 30.0,  # dynamic refresh inside the task
+    },
+    "scanner-run": {
+        "task": "app.scanner.scanner_tasks.scanner_run",
+        "schedule": 120.0,
+    },
+    "train-models-daily": {
+        "task": "app.ai.training.tasks.train_models",
+        "schedule": 86400.0,  # once per day
+    },
+    "predictive-run-6h": {
+    "task": "app.predictive.tasks.predictive_run",
+    "schedule": 21600.0  # ?? 6 ?????
+    },
+    "scanner-auto-select-1m": {
+    "task": "scanner.auto_select",
+    "schedule": 60.0
+    },
+}
+# Ensure tasks are registered
+from app.market_data import dxy_tasks  # noqa: F401
+from app.scanner import scanner_tasks  # noqa: F401
+from app.ai.training import tasks as ai_training_tasks  # noqa: F401
+from app.predictive import tasks as predictive_tasks  # noqa: F401
 
 class NotificationChannel(Enum):
     TELEGRAM = "telegram"

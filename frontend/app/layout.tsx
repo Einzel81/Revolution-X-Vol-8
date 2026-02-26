@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { LanguageProvider } from '@/components/i18n/LanguageProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -16,11 +17,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" dir="ltr" className="dark">
       <body className={inter.className}>
-        <div className="min-h-screen bg-revolution-dark">
-          {children}
-        </div>
+        <LanguageProvider>
+          <div className="min-h-screen bg-revolution-dark">{children}</div>
+        </LanguageProvider>
       </body>
     </html>
   );

@@ -291,13 +291,13 @@ export function useTradingData() {
 
     try {
       const [balance, backendPositions] = await Promise.all([
-        apiGet<BalanceResponse>("/api/v1/trading/balance"),
-        apiGet<BackendPosition[]>("/api/v1/trading/positions"),
+        apiGet<BalanceResponse>("/api/trading/balance"),
+        apiGet<BackendPosition[]>("/api/trading/positions"),
       ]);
 
       let trades: Trade[] = [];
       try {
-        const raw = await apiGet<any[]>("/api/v1/trading/trades?limit=200");
+        const raw = await apiGet<any[]>("/api/trading/trades?limit=200");
         trades = Array.isArray(raw) ? raw.map(normalizeTrade) : [];
       } catch {
         trades = [];
@@ -306,7 +306,7 @@ export function useTradingData() {
       let priceHistory: PriceCandle[] = [];
       try {
         priceHistory = await apiGet<PriceCandle[]>(
-          "/api/v1/market-data/historical?symbol=XAUUSD&tf=1h&limit=200"
+          "/api/market-data/historical?symbol=XAUUSD&tf=1h&limit=200"
         );
       } catch {
         priceHistory = [];

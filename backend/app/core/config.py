@@ -23,9 +23,7 @@ class Settings(BaseSettings):
     # -----------------------------
     # Database
     # -----------------------------
-    # ? ????? asyncpg ??? ?????? ??????
     DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/revolution_x"
-    # ? redis container ?????? ???? redis ???? docker-compose
     REDIS_URL: str = "redis://redis:6379/0"
 
     # -----------------------------
@@ -36,8 +34,6 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
-    
-    
 
     # -----------------------------
     # CORS
@@ -47,7 +43,6 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://frontend:3000",
         "http://localhost:5173",
-        # ? server ip
         "http://142.93.95.110:3000",
         "https://142.93.95.110:3000",
         "http://142.93.95.110",
@@ -55,7 +50,7 @@ class Settings(BaseSettings):
     ]
 
     # -----------------------------
-    # MT5 (?? config.py ??????)
+    # MT5
     # -----------------------------
     MT5_HOST: str = "localhost"
     MT5_PORT: int = 9000
@@ -73,6 +68,17 @@ class Settings(BaseSettings):
     # -----------------------------
     TRADING_MODE: str = "paper"  # paper | live
     AUTO_START: bool = False
+
+    # -----------------------------
+    # Execution (MT5)
+    # -----------------------------
+    # mt5_zmq | simulated
+    EXECUTION_BRIDGE: str = "simulated"
+    # order recv timeout
+    EXEC_TIMEOUT_MS: int = 2000
+    # Guards
+    EXEC_MAX_LATENCY_MS: int = 1500
+    EXEC_MAX_SLIPPAGE: float = 2.5
 
     # -----------------------------
     # AI Guardian

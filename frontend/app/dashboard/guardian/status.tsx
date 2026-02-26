@@ -65,7 +65,7 @@ export function GuardianStatus() {
   const toggleMonitoring = async () => {
     setLoading(true);
     try {
-      const endpoint = isMonitoring ? '/api/v1/guardian/stop-monitoring' : '/api/v1/guardian/start-monitoring';
+      const endpoint = isMonitoring ? '/api/guardian/stop-monitoring' : '/api/guardian/start-monitoring';
       await fetch(endpoint, { method: 'POST' });
       setIsMonitoring(!isMonitoring);
     } catch (error) {

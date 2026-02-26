@@ -32,7 +32,7 @@ export function ApprovalQueue() {
 
   const fetchPendingChanges = async () => {
     try {
-      const response = await fetch('/api/v1/guardian/changes/pending');
+      const response = await fetch('/api/guardian/changes/pending');
       const data = await response.json();
       setChanges(data);
     } catch (error) {
@@ -43,7 +43,7 @@ export function ApprovalQueue() {
   const handleApprove = async (id: number) => {
     setLoading(true);
     try {
-      await fetch(`/api/v1/guardian/changes/${id}/approve`, {
+      await fetch(`/api/guardian/changes/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved: true, comment })
@@ -61,7 +61,7 @@ export function ApprovalQueue() {
   const handleReject = async (id: number) => {
     setLoading(true);
     try {
-      await fetch(`/api/v1/guardian/changes/${id}/reject`, {
+      await fetch(`/api/guardian/changes/${id}/reject`, {
         method: 'POST'
       });
       await fetchPendingChanges();

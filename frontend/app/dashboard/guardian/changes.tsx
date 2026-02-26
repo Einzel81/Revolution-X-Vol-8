@@ -32,7 +32,7 @@ export function PendingChanges() {
 
   const fetchChanges = async () => {
     try {
-      const response = await fetch('/api/v1/guardian/changes/pending');
+      const response = await fetch('/api/guardian/changes/pending');
       const data = await response.json();
       setChanges(data);
     } catch (error) {

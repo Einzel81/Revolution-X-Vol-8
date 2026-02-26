@@ -1,8 +1,11 @@
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Enum
-from sqlalchemy.dialects.postgresql import UUID
-from app.database.connection import Base
+import uuid
 import enum
 import datetime
+
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Enum
+from sqlalchemy.dialects.postgresql import UUID
+
+from app.database.connection import Base
 
 class TradeStatus(str, enum.Enum):
     OPEN = "open"
@@ -17,7 +20,8 @@ class TradeType(str, enum.Enum):
 class Trade(Base):
     __tablename__ = "trades"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # UUID column expects uuid.UUID objects when as_uuid=True
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     symbol = Column(String, nullable=False)
     type = Column(Enum(TradeType), nullable=False)

@@ -1,4 +1,4 @@
-# backend/app/api/v1/trading.py (مُحدَّث)
+# backend/app/api/v1/trading.py (???????)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -116,6 +116,7 @@ async def execute_trade(
     entry: float = 2945.50,
     sl: float = 2920.00,
     tp: float = 2995.00,
+    db: AsyncSession = Depends(get_db),
     current_user = Depends(require_trader)
 ):
     """Execute a trade"""
@@ -129,7 +130,11 @@ async def execute_trade(
     
     result = await trading_engine.execute_trade(
         signal=signal,
-        balance=12450.00
+        balance=12450.00,
+        db=db,
+        user_id=str(current_user.id),
+        symbol=symbol,
+        source="api",
     )
     
     return result
