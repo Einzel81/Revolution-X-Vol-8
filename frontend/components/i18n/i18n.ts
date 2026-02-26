@@ -21,6 +21,7 @@ export const dictionaries: Record<Lang, Dict> = {
     "nav.ai": "AI",
     "nav.settings": "Settings",
     "nav.logout": "Logout",
+    "nav.mt5": "MT5",
   },
   ar: {
     "dashboard.title": "\u0644\u0648\u062d\u0629 \u0627\u0644\u062a\u062d\u0643\u0645",
@@ -38,6 +39,7 @@ export const dictionaries: Record<Lang, Dict> = {
     "nav.ai": "\u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a",
     "nav.settings": "\u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a",
     "nav.logout": "\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062e\u0631\u0648\u062c",
+    "nav.mt5": "\u0627\u062a\u0635\u0627\u0644 MT5",
   },
   fr: {
     "dashboard.title": "Tableau de bord",
@@ -55,6 +57,7 @@ export const dictionaries: Record<Lang, Dict> = {
     "nav.ai": "IA",
     "nav.settings": "Parametres",
     "nav.logout": "Deconnexion",
+    "nav.mt5": "MT5",
   },
 };
 

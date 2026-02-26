@@ -1,185 +1,136 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Save, RefreshCw, Settings as SettingsIcon } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Save, RefreshCw } from "lucide-react";
+
+type PublicSettings = Record<string, { is_secret: boolean; value?: string; is_set?: boolean }>;
+
+const keys = [
+  "MT5_HOST",
+  "MT5_PORT",
+  "TRADING_MODE",
+  "EXECUTION_BRIDGE",
+  "AUTO_SELECT_ENABLED",
+  "EXEC_TIMEOUT_MS",
+  "EXEC_MAX_LATENCY_MS",
+  "EXEC_MAX_SLIPPAGE",
+  "EXEC_GUARD_ENABLED",
+  "EXEC_DISABLE_AUTO_ON_VIOLATION",
+  "EXEC_VIOLATION_WINDOW_MIN",
+  "EXEC_MAX_VIOLATIONS_IN_WINDOW",
+];
 
 export default function SettingsPage() {
-  const [universeJson, setUniverseJson] = useState<string>("");
   const [loading, setLoading] = useState(false);
-
-  // Auto-Select
-  const [autoEnabled, setAutoEnabled] = useState(false);
-  const [minScore, setMinScore] = useState("65");
-  const [minConf, setMinConf] = useState("70");
-  const [maxPerHour, setMaxPerHour] = useState("2");
-
-  // Predictive Gate
-  const [predictiveMinStability, setPredictiveMinStability] = useState("120");
-  const [predictiveMaxAge, setPredictiveMaxAge] = useState("360");
+  const [savingKey, setSavingKey] = useState<string>("");
+  const [msg, setMsg] = useState<string>("");
+  const [data, setData] = useState<PublicSettings>({});
+  const [form, setForm] = useState<Record<string, string>>({});
 
   const load = async () => {
     setLoading(true);
+    setMsg("");
     try {
-      const fetchSetting = async (key: string) =>
-        fetch(`/api/admin/settings/${key}`, { cache: "no-store" }).then((r) => r.json());
-
-      const uni = await fetchSetting("SCANNER_UNIVERSE_JSON");
-      const a = await fetchSetting("AUTO_SELECT_ENABLED");
-      const s = await fetchSetting("AUTO_SELECT_MIN_SCORE");
-      const c = await fetchSetting("AUTO_SELECT_MIN_CONFIDENCE");
-      const m = await fetchSetting("AUTO_SELECT_MAX_TRADES_PER_HOUR");
-
-      const pMin = await fetchSetting("PREDICTIVE_STABILITY_MIN");
-      const pAge = await fetchSetting("PREDICTIVE_MAX_REPORT_AGE_MIN");
-
-      setUniverseJson(uni.value || "");
-
-      setAutoEnabled((a.value || "false").toLowerCase() === "true");
-      setMinScore(s.value || "65");
-      setMinConf(c.value || "70");
-      setMaxPerHour(m.value || "2");
-
-      setPredictiveMinStability(pMin.value || "120");
-      setPredictiveMaxAge(pAge.value || "360");
+      const r = await fetch("/api/admin/settings/settings", { cache: "no-store" });
+      const j = await r.json();
+      setData(j || {});
+      const initial: Record<string, string> = {};
+      for (const k of keys) {
+        const v = j?.[k]?.value;
+        initial[k] = v != null ? String(v) : "";
+      }
+      setForm(initial);
     } finally {
       setLoading(false);
     }
   };
 
-  const save = async () => {
-    setLoading(true);
+  const save = async (key: string) => {
+    setSavingKey(key);
+    setMsg("");
     try {
-      if (universeJson.trim()) JSON.parse(universeJson);
-
-      const post = (key: string, value: string) =>
-        fetch(`/api/admin/settings/${key}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ value, is_secret: false }),
-        });
-
-      await post("SCANNER_UNIVERSE_JSON", universeJson);
-      await post("AUTO_SELECT_ENABLED", autoEnabled ? "true" : "false");
-      await post("AUTO_SELECT_MIN_SCORE", minScore);
-      await post("AUTO_SELECT_MIN_CONFIDENCE", minConf);
-      await post("AUTO_SELECT_MAX_TRADES_PER_HOUR", maxPerHour);
-
-      await post("PREDICTIVE_STABILITY_MIN", predictiveMinStability);
-      await post("PREDICTIVE_MAX_REPORT_AGE_MIN", predictiveMaxAge);
-
+      const payload = { key, value: form[key] === "" ? null : form[key], is_secret: false };
+      const r = await fetch("/api/admin/settings/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json();
+      setMsg(j?.ok ? `Saved: ${key}` : `Save failed: ${key}`);
       await load();
     } finally {
-      setLoading(false);
+      setSavingKey("");
     }
   };
 
   useEffect(() => {
     load().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div className="min-h-screen bg-slate-900 text-white p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <SettingsIcon className="w-7 h-7 text-purple-400" />
-        <h1 className="text-2xl font-bold">System Settings</h1>
+  const input = (k: string, placeholder?: string) => (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-slate-400">{k}</label>
+      <div className="flex gap-2">
+        <input
+          className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
+          value={form[k] ?? ""}
+          onChange={(e) => setForm((p) => ({ ...p, [k]: e.target.value }))}
+          placeholder={placeholder || ""}
+        />
+        <button
+          onClick={() => save(k)}
+          disabled={savingKey === k}
+          className="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-sm flex items-center gap-2"
+        >
+          <Save className="w-4 h-4" />
+          {savingKey === k ? "Saving..." : "Save"}
+        </button>
       </div>
+    </div>
+  );
 
-      <div className="flex gap-3 mb-6">
+  return (
+    <div className="p-6 text-white">
+      <div className="flex items-center gap-3 mb-6">
+        <h1 className="text-2xl font-bold">Settings</h1>
         <button
           onClick={load}
-          className="px-4 py-2 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 flex items-center gap-2"
+          disabled={loading}
+          className="ml-auto px-4 py-2 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 flex items-center gap-2"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </button>
-        <button
-          onClick={save}
-          className="px-4 py-2 rounded bg-green-600 hover:bg-green-700 flex items-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          Save All
-        </button>
       </div>
 
-      {/* AUTO SELECT */}
-      <div className="p-4 rounded bg-slate-800 border border-slate-700 mb-6">
-        <div className="font-semibold mb-3">Auto-Select Execution</div>
-
-        <label className="flex items-center gap-3 text-sm mb-4">
-          <input
-            type="checkbox"
-            checked={autoEnabled}
-            onChange={(e) => setAutoEnabled(e.target.checked)}
-          />
-          Enable Auto-Select
-        </label>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="text-xs text-slate-400">Min Score</label>
-            <input
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"
-              value={minScore}
-              onChange={(e) => setMinScore(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400">Min Confidence</label>
-            <input
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"
-              value={minConf}
-              onChange={(e) => setMinConf(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400">Max Trades / Hour</label>
-            <input
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"
-              value={maxPerHour}
-              onChange={(e) => setMaxPerHour(e.target.value)}
-            />
-          </div>
+      {msg && (
+        <div className="mb-4 px-4 py-3 rounded border border-slate-700 bg-slate-800 text-slate-200 text-sm">
+          {msg}
         </div>
-      </div>
+      )}
 
-      {/* PREDICTIVE GATE */}
-      <div className="p-4 rounded bg-slate-800 border border-slate-700 mb-6">
-        <div className="font-semibold mb-3">Predictive Safety Gate</div>
+      <div className="rounded bg-slate-900/40 border border-slate-800 p-5">
+        <div className="text-lg font-semibold mb-4">Execution & MT5</div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-slate-400">Minimum Stability Score</label>
-            <input
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"
-              value={predictiveMinStability}
-              onChange={(e) => setPredictiveMinStability(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-slate-400">Max Report Age (minutes)</label>
-            <input
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2"
-              value={predictiveMaxAge}
-              onChange={(e) => setPredictiveMaxAge(e.target.value)}
-            />
-          </div>
+          {input("MT5_HOST", "127.0.0.1")}
+          {input("MT5_PORT", "9000")}
+          {input("TRADING_MODE", "paper | live")}
+          {input("EXECUTION_BRIDGE", "simulated | mt5_zmq")}
+          {input("AUTO_SELECT_ENABLED", "true | false")}
+          {input("EXEC_TIMEOUT_MS", "2000")}
+          {input("EXEC_MAX_LATENCY_MS", "1500")}
+          {input("EXEC_MAX_SLIPPAGE", "2.5")}
+          {input("EXEC_GUARD_ENABLED", "true | false")}
+          {input("EXEC_DISABLE_AUTO_ON_VIOLATION", "true | false")}
+          {input("EXEC_VIOLATION_WINDOW_MIN", "15")}
+          {input("EXEC_MAX_VIOLATIONS_IN_WINDOW", "3")}
         </div>
 
-        <div className="text-xs text-slate-400 mt-3">
-          If stability score is below threshold or report is older than max age,
-          Auto-Select will be disabled automatically.
+        <div className="text-xs text-slate-400 mt-4">
+          Note: These settings are stored in DB. Execution endpoints read them at runtime and apply to MT5 connector + guards.
         </div>
-      </div>
-
-      {/* SCANNER UNIVERSE */}
-      <div className="p-4 rounded bg-slate-800 border border-slate-700">
-        <div className="text-sm text-slate-300 mb-2">SCANNER_UNIVERSE_JSON</div>
-        <textarea
-          className="w-full h-[380px] bg-slate-900 border border-slate-700 rounded p-3 font-mono text-sm"
-          value={universeJson}
-          onChange={(e) => setUniverseJson(e.target.value)}
-        />
       </div>
     </div>
   );

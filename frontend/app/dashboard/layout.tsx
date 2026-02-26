@@ -22,7 +22,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { AlertCenter } from "@/components/notifications/alert-center";
 import { ToastProvider } from "@/components/notifications/toast-provider";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
-
+import { Wifi } from "lucide-react";
 type NavItem = {
   icon: any;
   labelKey: string;
@@ -59,6 +59,7 @@ export default function DashboardLayout({
 
       { icon: Shield, labelKey: "nav.dxy", href: "/dashboard/dxy" },
       { icon: Zap, labelKey: "nav.ai", href: "/dashboard/ai" },
+      { icon: Wifi, labelKey: "nav.mt5", href: "/dashboard/mt5" },
       { icon: Settings, labelKey: "nav.settings", href: "/dashboard/settings" },
     ],
     []

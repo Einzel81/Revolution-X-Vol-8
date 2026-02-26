@@ -8,16 +8,14 @@ Base = declarative_base()
 
 
 async def init_db():
-    # Ensure all models are imported before create_all()
-    # (SQLAlchemy only creates tables for imported Base subclasses)
     from app.models import user  # noqa: F401
     from app.models import trade  # noqa: F401
     from app.models import alert  # noqa: F401
     from app.models import notification  # noqa: F401
     from app.models import telegram_user  # noqa: F401
     from app.models import execution_event  # noqa: F401
+    from app.models import mt5_position_snapshot  # noqa: F401
 
-    # Create tables (no alembic in this project)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

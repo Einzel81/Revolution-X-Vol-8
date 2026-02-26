@@ -1,75 +1,48 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-from typing import List, Optional
-from datetime import datetime
+from app.mt5.connector import mt5_connector
+from app.services.settings_service import SettingsService
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+@router.get("/mt5")
+async def get_mt5_rates(
+    symbol: str = "XAUUSD",
+    timeframe: str = "M15",
+    count: int = 300,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_trader),
+):
+    # Apply runtime MT5 endpoint override (from DB)
+    svc = SettingsService(db)
+    host = await svc.get("MT5_HOST")
+    port = await svc.get("MT5_PORT")
+    if host:
+        mt5_connector.set_endpoint(host, int(port or 9000))
 
-from app.database.connection import get_db
-from app.auth.dependencies import require_trader, require_admin
-from app.models.candle import Candle
+    resp = await mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count, timeout_ms=3500)
+    if isinstance(resp, dict) and resp.get("error"):
+        raise HTTPException(status_code=502, detail=f"MT5 bridge error: {resp.get('error')}")
 
-router = APIRouter()
+    # Expect either {"rates":[...]} or list
+    items = resp.get("rates") if isinstance(resp, dict) else resp
+    if not isinstance(items, list):
+        items = resp.get("items") if isinstance(resp, dict) else []
+    if not isinstance(items, list):
+        items = []
 
-class CandleIn(BaseModel):
-    time: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: Optional[float] = None
-
-class IngestRequest(BaseModel):
-    symbol: str = "XAUUSD"
-    timeframe: str = "M15"
-    candles: List[CandleIn] = Field(..., min_items=1)
-
-@router.post("/ingest")
-async def ingest_candles(req: IngestRequest, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
-    """
-    Ingestion endpoint: call it from MT5 bridge / data feeder.
-    Uses UPSERT-like behavior by deleting duplicates on same PK.
-    """
-    # naive upsert: delete existing keys then insert
-    for c in req.candles:
-        await db.execute(
-            Candle.__table__.delete().where(
-                (Candle.time == c.time) &
-                (Candle.symbol == req.symbol) &
-                (Candle.timeframe == req.timeframe)
-            )
+    # normalize keys to the frontend chart standard
+    out = []
+    for x in items:
+        if not isinstance(x, dict):
+            continue
+        # common MT5 bridge keys: time/open/high/low/close/tick_volume or volume
+        t = x.get("time") or x.get("timestamp")
+        out.append(
+            {
+                "time": t,
+                "open": x.get("open"),
+                "high": x.get("high"),
+                "low": x.get("low"),
+                "close": x.get("close"),
+                "volume": x.get("tick_volume") or x.get("volume"),
+            }
         )
-        db.add(Candle(
-            time=c.time,
-            symbol=req.symbol,
-            timeframe=req.timeframe,
-            open=c.open,
-            high=c.high,
-            low=c.low,
-            close=c.close,
-            volume=c.volume
-        ))
 
-    await db.commit()
-    return {"ok": True, "inserted": len(req.candles)}
-
-@router.get("/latest")
-async def get_latest(symbol: str, timeframe: str, limit: int = 300, db: AsyncSession = Depends(get_db), _=Depends(require_trader)):
-    q = (
-        select(Candle)
-        .where((Candle.symbol == symbol) & (Candle.timeframe == timeframe))
-        .order_by(desc(Candle.time))
-        .limit(limit)
-    )
-    rows = (await db.execute(q)).scalars().all()
-    rows = list(reversed(rows))
-    return {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "count": len(rows),
-        "candles": [
-            {"time": r.time, "open": r.open, "high": r.high, "low": r.low, "close": r.close, "volume": r.volume}
-            for r in rows
-        ]
-    }
+    return {"symbol": symbol, "timeframe": timeframe, "count": len(out), "candles": out, "source": "mt5"}
