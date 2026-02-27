@@ -32,9 +32,61 @@ async def init_db():
 
         await conn.run_sync(Base.metadata.create_all)
 
-        # Convert time-series tables to hypertables (safe if already hypertable).
+        # ------------------------------------------------------------------
+        # TimescaleDB hardening (Step 5)
+        # - Convert core time-series tables to hypertables
+        # - Add critical indexes
+        # - Add retention policies (best-effort, idempotent)
+        #
+        # This runs AFTER create_all, so it's the reliable place to enforce
+        # hypertables even when init-scripts ran before tables existed.
+        # ------------------------------------------------------------------
+
+        # Hypertables
+        await conn.execute(text("SELECT create_hypertable('candles', 'time', if_not_exists => TRUE);"))
+        await conn.execute(text("SELECT create_hypertable('execution_events', 'created_at', if_not_exists => TRUE);"))
+        await conn.execute(text("SELECT create_hypertable('execution_logs', 'created_at', if_not_exists => TRUE);"))
+        await conn.execute(text("SELECT create_hypertable('trading_signals', 'created_at', if_not_exists => TRUE);"))
+        await conn.execute(text("SELECT create_hypertable('trades', 'created_at', if_not_exists => TRUE);"))
+        await conn.execute(text("SELECT create_hypertable('mt5_position_snapshots', 'created_at', if_not_exists => TRUE);"))
+        await conn.execute(text("SELECT create_hypertable('predictive_reports', 'created_at', if_not_exists => TRUE);"))
+
+        # Indexes (idempotent)
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_execution_events_created_at_desc ON execution_events (created_at DESC);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_execution_events_symbol_created_at ON execution_events (symbol, created_at DESC);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_execution_events_user_created_at ON execution_events (user_id, created_at DESC);"))
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_execution_logs_trade_created_at ON execution_logs (trade_id, created_at DESC);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_execution_logs_created_at_desc ON execution_logs (created_at DESC);"))
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_trading_signals_user_created_at ON trading_signals (user_id, created_at DESC);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_trading_signals_symbol_tf_created_at ON trading_signals (symbol, timeframe, created_at DESC);"))
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_trades_user_open_time ON trades (user_id, open_time DESC);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_trades_symbol_open_time ON trades (symbol, open_time DESC);"))
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_mt5_pos_account_created_at ON mt5_position_snapshots (account_id, created_at DESC);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_mt5_pos_symbol_created_at ON mt5_position_snapshots (symbol, created_at DESC);"))
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_predictive_symbol_tf_created_at ON predictive_reports (symbol, timeframe, created_at DESC);"))
+
+        # Retention policies (best-effort, idempotent)
+        # Timescale will error if a policy already exists; we swallow that.
+        # If add_retention_policy is not available, swallow as well.
         await conn.execute(
-            text("SELECT create_hypertable('candles', 'time', if_not_exists => TRUE);")
+            text(
+                """
+DO $$
+BEGIN
+  BEGIN PERFORM add_retention_policy('candles', INTERVAL '365 days'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN PERFORM add_retention_policy('execution_events', INTERVAL '180 days'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN PERFORM add_retention_policy('execution_logs', INTERVAL '180 days'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN PERFORM add_retention_policy('trading_signals', INTERVAL '365 days'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN PERFORM add_retention_policy('mt5_position_snapshots', INTERVAL '30 days'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN PERFORM add_retention_policy('predictive_reports', INTERVAL '730 days'); EXCEPTION WHEN OTHERS THEN NULL; END;
+END $$;
+                """
+            )
         )
 
 
