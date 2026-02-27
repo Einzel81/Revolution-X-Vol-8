@@ -1,0 +1,13 @@
+# Database
+DATABASE_URL=postgresql://user:pass@localhost/revolutionx
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Security
+SECRET_KEY=your-secret-key-here
+JWT_ALGORITHM=HS256
+
+# External Services
+MT5_ENABLED=true
+TELEGRAM_BOT_TOKEN=your-bot-token

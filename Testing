@@ -1,0 +1,10 @@
+# Run all tests
+pytest
+
+# With coverage
+pytest --cov=app --cov-report=html
+
+# Specific test categories
+pytest -m unit
+pytest -m integration
+pytest -m e2e
