@@ -6,6 +6,36 @@ from app.database.connection import get_db
 from app.auth.dependencies import require_trader
 from app.models.trading_signal import TradingSignal
 from app.api.v1.trading import trading_engine
+from app.mt5.connector import mt5_connector
+
+
+async def _get_live_balance() -> float:
+    fn = getattr(mt5_connector, "account_info", None)
+    if not callable(fn):
+        raise HTTPException(status_code=501, detail="mt5_connector.account_info not implemented")
+
+    resp = fn()
+    if hasattr(resp, "__await__"):
+        resp = await resp
+    if isinstance(resp, dict) and resp.get("error"):
+        raise HTTPException(status_code=503, detail={"ok": False, "error": resp.get("error")})
+
+    data = resp
+    if isinstance(resp, dict) and isinstance(resp.get("data"), dict):
+        data = resp["data"]
+    if isinstance(resp, dict) and isinstance(resp.get("response"), dict):
+        data = resp["response"]
+
+    bal = data.get("balance") if isinstance(data, dict) else None
+    if bal is None and isinstance(data, dict):
+        bal = data.get("equity")
+    try:
+        bal_f = float(bal)
+    except Exception:
+        raise HTTPException(status_code=503, detail={"ok": False, "error": "unable_to_parse_balance", "raw": resp})
+    if bal_f <= 0:
+        raise HTTPException(status_code=503, detail={"ok": False, "error": "invalid_balance", "raw": resp})
+    return bal_f
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 
@@ -35,7 +65,7 @@ async def execute_scanner_signal(signal_id: str, db: AsyncSession = Depends(get_
     # execute_trade already persists Signal/Trade/ExecutionLogs if db+user_id passed
     return await trading_engine.execute_trade(
         signal=signal_payload,
-        balance=12450.0,  # TODO: pull real balance
+        balance=await _get_live_balance(),
         db=db,
         user_id=str(user.id),
         symbol=sig.symbol,

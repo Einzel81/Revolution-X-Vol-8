@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import asyncio
 import math
+import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ from app.strategies.kill_zones import KillZoneAnalyzer
 from app.core.risk_manager import RiskManager
 from app.core.position_sizer import PositionSizer
 from app.mt5.connector import mt5_connector
+from app.config import settings
 
 from app.adaptive.router import AdaptiveStrategyRouter
 
@@ -215,7 +217,7 @@ class TradingEngine:
 
         # Volume Profile Score
         if vp:
-            price_position = self.volume_profile.get_price_position(
+                        price_position = self.volume_profile.get_price_position(
                 self.smc.data[-1]['close'] if self.smc.data else 0
             )
             if price_position == "below_value_area":
@@ -313,12 +315,19 @@ class TradingEngine:
         balance: float,
         win_rate: float = 0.55,
         avg_win: float = 100,
-        avg_loss: float = 50
+        avg_loss: float = 50,
+        *,
+        db: Optional[AsyncSession] = None,
+        user_id: Optional[str] = None,
+        symbol: Optional[str] = None,
+        timeframe: Optional[str] = None,
     ) -> Dict:
         """
         Execute trade based on signal
-        (Note: Persistence/live execution upgrades are handled in the execution-focused patch,
-               not required for stages 1.2/1.3)
+        Updated (Vol-8):
+          - Accepts db + user_id to persist Trade + ExecutionLogs
+          - Delegates live/paper execution to execution_executor
+          - Adds parsed fill/slippage into ExecutionLog.response (without schema change)
         """
         action = signal.get("action", "NEUTRAL")
         if "NEUTRAL" in action or "WAIT" in action:
@@ -355,10 +364,159 @@ class TradingEngine:
 
         direction = "BUY" if "BUY" in action else "SELL"
 
-        # Simulated by default in Vol-7
+        # Execution mode
+        mode = str(getattr(settings, "TRADING_MODE", "paper")).lower()
+        bridge = str(getattr(settings, "EXECUTION_BRIDGE", "simulated")).lower()
+        is_live = (mode == "live" and bridge == "mt5_zmq")
+
+        # Optional persistence objects
+        trade_obj = None
+        trade_id = None
+        user_uuid = None
+
+        if db is not None and user_id is not None:
+            # Create Trade row upfront so ExecutionLogs can reference it
+            try:
+                user_uuid = uuid.UUID(str(user_id))
+            except Exception:
+                user_uuid = None
+
+            try:
+                from app.models.trade import Trade, TradeType, TradeStatus
+                from app.models.execution_log import ExecutionLog
+
+                trade_obj = Trade(
+                    user_id=user_uuid if user_uuid else user_id,  # best-effort
+                    symbol=str(symbol or signal.get("symbol") or "XAUUSD"),
+                    type=TradeType.BUY if direction == "BUY" else TradeType.SELL,
+                    status=TradeStatus.PENDING,
+                    entry_price=float(entry) if entry is not None else None,
+                    volume=float(position.lots),
+                    stop_loss=float(sl) if sl is not None else None,
+                    take_profit=float(tp) if tp is not None else None,
+                )
+                db.add(trade_obj)
+                await db.flush()  # assigns trade_obj.id
+                trade_id = str(trade_obj.id)
+
+                # ExecutionLog: request step
+                req_payload = {
+                    "symbol": str(symbol or signal.get("symbol") or "XAUUSD"),
+                    "timeframe": timeframe,
+                    "side": direction,
+                    "requested_price": float(entry) if entry is not None else None,
+                    "sl": float(sl) if sl is not None else None,
+                    "tp": float(tp) if tp is not None else None,
+                    "lots": float(position.lots),
+                    "mode": mode,
+                    "bridge": bridge,
+                }
+                db.add(
+                    ExecutionLog(
+                        trade_id=trade_obj.id,
+                        step="send_order" if is_live else "simulated",
+                        attempt=1,
+                        request=req_payload,
+                        response=None,
+                        success=False,
+                    )
+                )
+                await db.flush()
+            except Exception:
+                # Persistence must never block execution path
+                trade_obj = None
+                trade_id = None
+
+        # Live vs simulated execution
+        exec_result: Dict[str, Any]
+        if is_live and db is not None and user_id is not None:
+            # Use centralized executor (stores ExecutionEvent)
+            from app.execution.executor import execution_executor
+
+            exec_result = await execution_executor.execute(
+                db=db,
+                user_id=str(user_id),
+                source="scanner" if signal.get("reasons") else "engine",
+                                symbol=str(symbol or signal.get("symbol") or "XAUUSD"),
+                side=direction,
+                volume=float(position.lots),
+                sl=float(sl) if sl is not None else None,
+                tp=float(tp) if tp is not None else None,
+                requested_price=float(entry) if entry is not None else None,
+            )
+        else:
+            exec_result = {
+                "status": "simulated",
+                "ticket": None,
+                "fill_price": None,
+                "slippage": None,
+                "latency_ms": None,
+                "bridge_connected": bool(getattr(mt5_connector, "connected", False)),
+                "raw": {"note": "simulated execution", "mode": mode, "bridge": bridge},
+            }
+
+        # Persist response + update trade status (best-effort)
+        if db is not None and trade_obj is not None:
+            try:
+                from app.models.trade import TradeStatus
+                from app.models.execution_log import ExecutionLog
+
+                status = str(exec_result.get("status") or "simulated")
+                success = status == "success"
+
+                # Update Trade
+                if success:
+                    trade_obj.status = TradeStatus.OPEN
+                    fp = exec_result.get("fill_price")
+                    if fp is not None:
+                        try:
+                            trade_obj.entry_price = float(fp)
+                        except Exception:
+                            pass
+                elif status in {"error", "blocked"}:
+                    trade_obj.status = TradeStatus.CANCELLED
+                else:
+                    # simulated or other
+                    trade_obj.status = TradeStatus.PENDING
+
+                # ExecutionLog: response step (include parsed values inside response)
+                resp_for_log = exec_result.get("raw")
+                if isinstance(resp_for_log, dict):
+                    resp_for_log = dict(resp_for_log)
+                    if exec_result.get("fill_price") is not None:
+                        resp_for_log["_parsed_fill_price"] = exec_result.get("fill_price")
+                    if exec_result.get("slippage") is not None:
+                        resp_for_log["_parsed_slippage"] = exec_result.get("slippage")
+                    if exec_result.get("ticket") is not None:
+                        resp_for_log["_parsed_ticket"] = exec_result.get("ticket")
+                    if exec_result.get("latency_ms") is not None:
+                        resp_for_log["_parsed_latency_ms"] = exec_result.get("latency_ms")
+
+                db.add(
+                    ExecutionLog(
+                        trade_id=trade_obj.id,
+                        step="response",
+                        attempt=1,
+                        request=None,
+                        response=resp_for_log,
+                        latency_ms=float(exec_result.get("latency_ms") or 0.0) if exec_result.get("latency_ms") is not None else None,
+                        success=bool(success),
+                        error=str(exec_result.get("reason") or exec_result.get("error") or "") or None,
+                    )
+                )
+                await db.commit()
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
         return {
-            "status": "simulated",
+            "status": exec_result.get("status", "simulated"),
+            "trade_id": trade_id,
             "direction": direction,
+            "symbol": str(symbol or signal.get("symbol") or "XAUUSD"),
+            "timeframe": timeframe,
             "entry": entry,
             "sl": sl,
             "tp": tp,
@@ -366,13 +524,22 @@ class TradingEngine:
                 "lots": position.lots,
                 "risk_amount": position.risk_amount,
                 "risk_percent": position.risk_percent,
-                "r_r": position.risk_reward_ratio
+                "r_r": position.risk_reward_ratio,
             },
             "confidence": signal.get("confidence"),
             "risk_assessment": {
                 "level": risk_assessment.risk_level.value,
-                "reasons": risk_assessment.reasons
-            }
+                "reasons": risk_assessment.reasons,
+            },
+            "execution": {
+                "ticket": exec_result.get("ticket"),
+                "fill_price": exec_result.get("fill_price"),
+                "slippage": exec_result.get("slippage"),
+                "latency_ms": exec_result.get("latency_ms"),
+                "bridge_connected": exec_result.get("bridge_connected"),
+                "reason": exec_result.get("reason") or exec_result.get("error"),
+                "raw": exec_result.get("raw"),
+            },
         }
 
     async def start(self):

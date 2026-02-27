@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
@@ -28,13 +28,12 @@ class ScannerExecutionService:
         """
         since = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
 
-        # Try ExecutionLog first (most accurate for "attempts")
+        # Prefer ExecutionEvent (has user_id and stores every attempt)
         try:
-            from app.models.execution_log import ExecutionLog  # type: ignore
+            from app.models.execution_event import ExecutionEvent  # type: ignore
 
-            q = (
-                select(func.count(ExecutionLog.id))
-                .where((ExecutionLog.user_id == user_id) & (ExecutionLog.created_at >= since))
+            q = select(func.count(ExecutionEvent.id)).where(
+                (ExecutionEvent.user_id == str(user_id)) & (ExecutionEvent.created_at >= since)
             )
             n = (await db.execute(q)).scalar_one()
             return int(n or 0)

@@ -79,7 +79,7 @@ def _set_endpoint_if_supported(host: str, port: int) -> None:
 
 async def _ping_any() -> Dict[str, Any]:
     """
-    ping ?? ???? sync ?? async â€” ???? ???????.
+    ping ?? ???? sync ?? async — ???? ???????.
     """
     fn = getattr(mt5_connector, "ping", None)
     if not callable(fn):
@@ -169,3 +169,122 @@ async def ping_active(db: AsyncSession = Depends(get_db), user=Depends(require_t
     resp["active_id"] = active_id
     resp["ts"] = _now_ms()
     return resp
+
+
+def _unwrap_bridge_payload(resp: Any) -> Dict[str, Any]:
+    """Normalize bridge payload to a dict.
+
+    Some bridges return:
+      - {"ok": True, "data": {...}}
+      - {"response": {...}}
+      - {...} directly
+    """
+    if not isinstance(resp, dict):
+        return {"raw": resp}
+    if "data" in resp and isinstance(resp.get("data"), dict):
+        return resp["data"]
+    if "response" in resp and isinstance(resp.get("response"), dict):
+        return resp["response"]
+    return resp
+
+
+@router.get("/account")
+async def get_account(db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
+    """Return MT5 account info from the active ZMQ bridge."""
+    # Ensure active endpoint is selected (best-effort)
+    settings = SettingsService(db)
+    conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
+    active_id = await _settings_get(settings, KEY_ACTIVE_ID)
+    if active_id:
+        active = next((c for c in conns if str(c.get("id")) == str(active_id)), None)
+        if active:
+            _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+
+    fn = getattr(mt5_connector, "account_info", None)
+    if not callable(fn):
+        raise HTTPException(status_code=501, detail="mt5_connector.account_info not implemented")
+
+    res = fn()
+    if hasattr(res, "__await__"):
+        res = await res
+
+    if isinstance(res, dict) and res.get("error"):
+        raise HTTPException(status_code=503, detail={"ok": False, "error": res.get("error")})
+
+    data = _unwrap_bridge_payload(res)
+    # Extract common account fields
+    out = {
+        "balance": data.get("balance"),
+        "equity": data.get("equity"),
+        "margin": data.get("margin"),
+        "free_margin": data.get("free_margin") or data.get("freeMargin"),
+        "margin_level": data.get("margin_level") or data.get("marginLevel"),
+        "currency": data.get("currency"),
+        "login": data.get("login") or data.get("account") or data.get("account_id"),
+    }
+    return {"ok": True, "data": out, "raw": res, "active_id": active_id, "ts": _now_ms()}
+
+
+@router.get("/positions")
+async def get_positions(db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
+    """Return MT5 open positions from the active ZMQ bridge."""
+    settings = SettingsService(db)
+    conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
+    active_id = await _settings_get(settings, KEY_ACTIVE_ID)
+    if active_id:
+        active = next((c for c in conns if str(c.get("id")) == str(active_id)), None)
+        if active:
+            _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+
+    fn = getattr(mt5_connector, "get_positions", None)
+    if not callable(fn):
+        raise HTTPException(status_code=501, detail="mt5_connector.get_positions not implemented")
+
+    res = fn()
+    if hasattr(res, "__await__"):
+        res = await res
+
+    if isinstance(res, dict) and res.get("error"):
+        raise HTTPException(status_code=503, detail={"ok": False, "error": res.get("error")})
+
+    data = _unwrap_bridge_payload(res)
+    items = data.get("positions") if isinstance(data.get("positions"), list) else None
+    if items is None and isinstance(data.get("items"), list):
+        items = data.get("items")
+    if items is None and isinstance(res, list):
+        items = res
+    if items is None:
+        # some bridges return list directly inside "response"
+        items = data if isinstance(data, list) else []
+    return {"ok": True, "count": len(items), "items": items, "raw": res, "active_id": active_id, "ts": _now_ms()}
+
+
+@router.get("/orders")
+async def get_orders(db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
+    """Return MT5 pending orders (if bridge supports it)."""
+    settings = SettingsService(db)
+    conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
+    active_id = await _settings_get(settings, KEY_ACTIVE_ID)
+    if active_id:
+        active = next((c for c in conns if str(c.get("id")) == str(active_id)), None)
+        if active:
+            _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+
+    fn = getattr(mt5_connector, "get_orders", None)
+    if not callable(fn):
+        return {"ok": False, "detail": "mt5_connector.get_orders not implemented", "active_id": active_id, "ts": _now_ms()}
+
+    res = fn()
+    if hasattr(res, "__await__"):
+        res = await res
+
+    if isinstance(res, dict) and res.get("error"):
+        raise HTTPException(status_code=503, detail={"ok": False, "error": res.get("error")})
+
+    data = _unwrap_bridge_payload(res)
+    items = data.get("orders") if isinstance(data.get("orders"), list) else None
+    if items is None and isinstance(data.get("items"), list):
+        items = data.get("items")
+    if items is None:
+        items = data if isinstance(data, list) else []
+    return {"ok": True, "count": len(items), "items": items, "raw": res, "active_id": active_id, "ts": _now_ms()}

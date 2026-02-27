@@ -95,8 +95,37 @@ class MT5Connector:
         }
         return await self._call(order, timeout_ms=timeout_ms)
 
+    async def account_info(self, *, timeout_ms: int = 2000) -> Dict[str, Any]:
+        """Return account snapshot from bridge.
+
+        Supports multiple common action names used by MT5 bridges.
+        """
+        # Prefer the canonical action used elsewhere in this repo
+        resp = await self._call({"action": "ACCOUNT_INFO"}, timeout_ms=timeout_ms)
+        if isinstance(resp, dict) and resp.get("error"):
+            # Some bridges use GET_ACCOUNT
+            resp2 = await self._call({"action": "GET_ACCOUNT"}, timeout_ms=timeout_ms)
+            if not (isinstance(resp2, dict) and resp2.get("error")):
+                return resp2
+        return resp
+
+    async def get_orders(self, *, timeout_ms: int = 2500) -> Dict[str, Any]:
+        """Return pending orders from bridge (if supported)."""
+        resp = await self._call({"action": "GET_ORDERS"}, timeout_ms=timeout_ms)
+        if isinstance(resp, dict) and resp.get("error"):
+            resp2 = await self._call({"action": "ORDERS"}, timeout_ms=timeout_ms)
+            if not (isinstance(resp2, dict) and resp2.get("error")):
+                return resp2
+        return resp
+
     async def get_positions(self, *, timeout_ms: int = 2500) -> Dict[str, Any]:
-        return await self._call({"action": "GET_POSITIONS"}, timeout_ms=timeout_ms)
+        # Support multiple action names
+        resp = await self._call({"action": "GET_POSITIONS"}, timeout_ms=timeout_ms)
+        if isinstance(resp, dict) and resp.get("error"):
+            resp2 = await self._call({"action": "POSITIONS"}, timeout_ms=timeout_ms)
+            if not (isinstance(resp2, dict) and resp2.get("error")):
+                return resp2
+        return resp
 
     async def get_rates(self, symbol: str, timeframe: str, count: int = 300, *, timeout_ms: int = 3500) -> Dict[str, Any]:
         return await self._call({"action": "RATES", "symbol": symbol, "timeframe": timeframe, "count": int(count)}, timeout_ms=timeout_ms)

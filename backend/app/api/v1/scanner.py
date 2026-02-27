@@ -10,6 +10,45 @@ from app.models.trading_signal import TradingSignal
 from app.core.trading_engine import TradingEngine
 from app.scanner.opportunity_scanner import SmartOpportunityScanner
 from app.scanner.execution_service import ScannerExecutionService
+from app.mt5.connector import mt5_connector
+
+
+async def _get_live_balance() -> float:
+    """Best-effort balance retrieval from MT5 bridge.
+
+    Returns balance if present, otherwise equity, otherwise raises.
+    """
+    fn = getattr(mt5_connector, "account_info", None)
+    if not callable(fn):
+        raise HTTPException(status_code=501, detail="mt5_connector.account_info not implemented")
+
+    resp = fn()
+    if hasattr(resp, "__await__"):
+        resp = await resp
+
+    if isinstance(resp, dict) and resp.get("error"):
+        raise HTTPException(status_code=503, detail={"ok": False, "error": resp.get("error")})
+
+    data = resp
+    if isinstance(resp, dict) and isinstance(resp.get("data"), dict):
+        data = resp["data"]
+    if isinstance(resp, dict) and isinstance(resp.get("response"), dict):
+        data = resp["response"]
+
+    bal = None
+    if isinstance(data, dict):
+        bal = data.get("balance")
+        if bal is None:
+            bal = data.get("equity")
+
+    try:
+        bal_f = float(bal)
+    except Exception:
+        raise HTTPException(status_code=503, detail={"ok": False, "error": "unable_to_parse_balance", "raw": resp})
+
+    if bal_f <= 0:
+        raise HTTPException(status_code=503, detail={"ok": False, "error": "invalid_balance", "raw": resp})
+    return bal_f
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 
@@ -64,8 +103,7 @@ async def recent_scanner_signals(
 
 @router.post("/execute/{signal_id}")
 async def execute_scanner_signal(signal_id: str, db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
-    # TODO: replace with real account balance retrieval
-    balance = 12450.0
+    balance = await _get_live_balance()
     out = await ScannerExecutionService.execute_signal_by_id(db=db, signal_id=signal_id, user_id=str(user.id), balance=balance)
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=out)
@@ -79,8 +117,7 @@ async def execute_best_scanner_signal(
     db: AsyncSession = Depends(get_db),
     user=Depends(require_trader),
 ):
-    # TODO: replace with real account balance retrieval
-    balance = 12450.0
+    balance = await _get_live_balance()
     out = await ScannerExecutionService.execute_best(
         db=db,
         user_id=str(user.id),

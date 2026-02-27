@@ -7,9 +7,9 @@ from typing import Any, Dict, List
 from app.database.connection import get_db
 from app.core.trading_engine import TradingEngine
 from app.auth.dependencies import get_current_user, require_trader
-from app.execution.executor import execution_executor
 from app.models.trade import Trade
 from app.services.activity_bus import publish_activity
+from app.mt5.connector import mt5_connector
 
 router = APIRouter()
 
@@ -35,13 +35,30 @@ async def get_balance(
     current_user = Depends(require_trader)
 ):
     """Get account balance"""
-    # TODO: Get from MT5
+    fn = getattr(mt5_connector, "account_info", None)
+    if not callable(fn):
+        return {"ok": False, "error": "mt5_connector.account_info not implemented"}
+
+    resp = fn()
+    if hasattr(resp, "__await__"):
+        resp = await resp
+    if isinstance(resp, dict) and resp.get("error"):
+        return {"ok": False, "error": resp.get("error"), "raw": resp}
+
+    data = resp
+    if isinstance(resp, dict) and isinstance(resp.get("data"), dict):
+        data = resp["data"]
+    if isinstance(resp, dict) and isinstance(resp.get("response"), dict):
+        data = resp["response"]
+
     return {
-        "balance": 12450.00,
-        "equity": 12595.50,
-        "margin": 250.00,
-        "free_margin": 12345.50,
-        "margin_level": 98.0
+        "ok": True,
+        "balance": (data.get("balance") if isinstance(data, dict) else None),
+        "equity": (data.get("equity") if isinstance(data, dict) else None),
+        "margin": (data.get("margin") if isinstance(data, dict) else None),
+        "free_margin": (data.get("free_margin") if isinstance(data, dict) else None),
+        "margin_level": (data.get("margin_level") if isinstance(data, dict) else None),
+        "raw": resp,
     }
 
 @router.post("/analyze")
@@ -140,26 +157,34 @@ async def execute_trade(
         "confidence": 75,
     }
 
-    # Risk + sizing
-    sim = await trading_engine.execute_trade(signal=signal, balance=12450.00)
-    if sim.get("status") not in {"simulated", "success"}:
-        return sim
+    # Pull real balance (best-effort). If unavailable, refuse live sizing.
+    bal = None
+    try:
+        info = await mt5_connector.account_info()
+        data = info
+        if isinstance(info, dict) and isinstance(info.get("data"), dict):
+            data = info["data"]
+        if isinstance(info, dict) and isinstance(info.get("response"), dict):
+            data = info["response"]
+        if isinstance(data, dict):
+            bal = data.get("balance") or data.get("equity")
+    except Exception:
+        bal = None
+    if bal is None:
+        return {"status": "error", "reason": "unable_to_fetch_balance_from_mt5"}
 
-    lots = float(sim.get("position_size", {}).get("lots", 0.0) or 0.0)
-    if lots <= 0:
-        return {"status": "rejected", "reason": "position sizing returned 0 lots"}
-
-    exec_res = await execution_executor.execute(
+    # Use engine end-to-end (risk+sizing+execution+logs)
+    res = await trading_engine.execute_trade(
+        signal=signal,
+        balance=float(bal),
         db=db,
         user_id=str(current_user.id),
-        source="api",
         symbol=symbol.upper(),
-        side=side,
-        volume=lots,
-        sl=float(sl),
-        tp=float(tp),
-        requested_price=float(entry),
+        timeframe=None,
     )
+
+    exec_res = res.get("execution") or {}
+    lots = float((res.get("position_size") or {}).get("lots") or 0.0)
 
     # Broadcast activity (best-effort)
     try:
@@ -170,7 +195,7 @@ async def execute_trade(
                 "symbol": symbol.upper(),
                 "side": side,
                 "volume": lots,
-                "status": exec_res.get("status"),
+                "status": res.get("status"),
                 "slippage": exec_res.get("slippage"),
                 "latency_ms": exec_res.get("latency_ms"),
             },
@@ -178,7 +203,7 @@ async def execute_trade(
     except Exception:
         pass
 
-    return {"risk": sim, "execution": exec_res}
+    return res
 
 @router.get("/positions")
 async def get_positions(
