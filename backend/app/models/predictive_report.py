@@ -11,6 +11,8 @@ from app.database.connection import Base
 class PredictiveReport(Base):
     __tablename__ = "predictive_reports"
 
+    # TimescaleDB hypertable requirement (partition by created_at):
+    # PK/UNIQUE must include created_at.
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     symbol = Column(String(32), nullable=False)
@@ -27,4 +29,4 @@ class PredictiveReport(Base):
     stability_score = Column(Float, nullable=True)
 
     meta = Column(JSONB, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, primary_key=True, default=datetime.datetime.utcnow, nullable=False)

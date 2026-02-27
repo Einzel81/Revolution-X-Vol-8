@@ -23,6 +23,25 @@ def _to_dt(ts: Any) -> datetime:
         return datetime.utcnow()
 
 
+def _normalize_rates(resp: Any) -> List[Dict[str, Any]]:
+    # Bridges may return dict with keys: rates/items/data
+    if isinstance(resp, list):
+        return [x for x in resp if isinstance(x, dict)]
+    if isinstance(resp, dict):
+        for k in ("rates", "items", "data"):
+            v = resp.get(k)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+        # Some bridges nest inside "response"
+        r2 = resp.get("response")
+        if isinstance(r2, dict):
+            for k in ("rates", "items", "data"):
+                v = r2.get(k)
+                if isinstance(v, list):
+                    return [x for x in v if isinstance(x, dict)]
+    return []
+
+
 async def _insert_new_candles(db: AsyncSession, symbol: str, timeframe: str, rates: List[Dict[str, Any]]) -> int:
     inserted = 0
     for r in rates:
@@ -54,15 +73,20 @@ async def _insert_new_candles(db: AsyncSession, symbol: str, timeframe: str, rat
 
 @shared_task(name="app.tasks.market_tasks.ingest_and_scan")
 def ingest_and_scan(symbol: str = "XAUUSD", timeframe: str = "M15", count: int = 200) -> str:
-    rates: Optional[List[Dict[str, Any]]] = None
+    raw: Any = None
 
     try:
-        rates = mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count)
+        raw = mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count)
     except TypeError:
         async def _get():
             return await mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count)
-        rates = asyncio.run(_get())
+        raw = asyncio.run(_get())
 
+    # If connector returns coroutine
+    if hasattr(raw, "__await__"):
+        raw = asyncio.run(raw)
+
+    rates = _normalize_rates(raw)
     if not rates:
         return "no_data"
 

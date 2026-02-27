@@ -30,10 +30,29 @@ class MT5Connector:
                 pass
             self.socket = None
 
-    async def connect(self):
+    def _endpoint(self) -> str:
+        return f"tcp://{self.host}:{self.port}"
+
+    def _err(self, e: Exception, prefix: str = "mt5_error") -> Dict[str, Any]:
+        msg = str(e).strip()
+        if not msg:
+            msg = f"{type(e).__name__}"
+        else:
+            msg = f"{type(e).__name__}: {msg}"
+        return {"ok": False, "error": msg, "where": prefix, "endpoint": self._endpoint()}
+
+    async def connect(self) -> bool:
         try:
+            # Close previous
+            try:
+                if self.socket is not None:
+                    self.socket.close(linger=0)
+            except Exception:
+                pass
+
             self.socket = self.context.socket(zmq.REQ)
-            self.socket.connect(f"tcp://{self.host}:{self.port}")
+            self.socket.linger = 0  # important for quick reconnects
+            self.socket.connect(self._endpoint())
             self.connected = True
             return True
         except Exception as e:
@@ -41,39 +60,48 @@ class MT5Connector:
             self.connected = False
             return False
 
-    async def _ensure(self) -> None:
+    async def _ensure(self) -> bool:
         if not self.connected or self.socket is None:
-            await self.connect()
+            return await self.connect()
+        return True
 
     async def _call(self, payload: Dict[str, Any], *, timeout_ms: int = 2000) -> Dict[str, Any]:
-        await self._ensure()
+        ok = await self._ensure()
+        if not ok or self.socket is None:
+            return {"ok": False, "error": "mt5_not_connected", "endpoint": self._endpoint()}
+
         try:
-            self.socket.send_json(payload)
+            await self.socket.send_json(payload)
             resp = await asyncio.wait_for(self.socket.recv_json(), timeout=timeout_ms / 1000)
             if isinstance(resp, dict):
+                # Attach endpoint for easier debugging
+                if "endpoint" not in resp:
+                    resp["endpoint"] = self._endpoint()
                 return resp
-            return {"ok": True, "response": resp}
+            return {"ok": True, "response": resp, "endpoint": self._endpoint()}
         except Exception as e:
             self.connected = False
-            return {"error": str(e)}
+            return self._err(e, prefix=f"call:{payload.get('action')}")
 
     async def ping(self, timeout_ms: int = 800) -> dict:
         try:
             t0 = time.perf_counter()
             resp = await self._call({"action": "PING"}, timeout_ms=timeout_ms)
             if isinstance(resp, dict) and resp.get("error"):
-                raise RuntimeError(resp["error"])
-            return {"ok": True, "latency_ms": (time.perf_counter() - t0) * 1000.0, "response": resp}
+                raise RuntimeError(str(resp.get("error")))
+            return {"ok": True, "latency_ms": (time.perf_counter() - t0) * 1000.0, "response": resp, "endpoint": self._endpoint()}
         except Exception:
             t0 = time.perf_counter()
             try:
                 resp = await self._call({"action": "ACCOUNT_INFO"}, timeout_ms=timeout_ms)
                 if isinstance(resp, dict) and resp.get("error"):
-                    raise RuntimeError(resp["error"])
-                return {"ok": True, "latency_ms": (time.perf_counter() - t0) * 1000.0, "response": resp, "fallback": True}
+                    raise RuntimeError(str(resp.get("error")))
+                return {"ok": True, "latency_ms": (time.perf_counter() - t0) * 1000.0, "response": resp, "fallback": True, "endpoint": self._endpoint()}
             except Exception as e:
                 self.connected = False
-                return {"ok": False, "error": str(e)}
+                out = self._err(e, prefix="ping")
+                out["latency_ms"] = (time.perf_counter() - t0) * 1000.0
+                return out
 
     async def send_order(
         self,
@@ -100,17 +128,14 @@ class MT5Connector:
 
         Supports multiple common action names used by MT5 bridges.
         """
-        # Prefer the canonical action used elsewhere in this repo
         resp = await self._call({"action": "ACCOUNT_INFO"}, timeout_ms=timeout_ms)
         if isinstance(resp, dict) and resp.get("error"):
-            # Some bridges use GET_ACCOUNT
             resp2 = await self._call({"action": "GET_ACCOUNT"}, timeout_ms=timeout_ms)
             if not (isinstance(resp2, dict) and resp2.get("error")):
                 return resp2
         return resp
 
     async def get_orders(self, *, timeout_ms: int = 2500) -> Dict[str, Any]:
-        """Return pending orders from bridge (if supported)."""
         resp = await self._call({"action": "GET_ORDERS"}, timeout_ms=timeout_ms)
         if isinstance(resp, dict) and resp.get("error"):
             resp2 = await self._call({"action": "ORDERS"}, timeout_ms=timeout_ms)
@@ -119,7 +144,6 @@ class MT5Connector:
         return resp
 
     async def get_positions(self, *, timeout_ms: int = 2500) -> Dict[str, Any]:
-        # Support multiple action names
         resp = await self._call({"action": "GET_POSITIONS"}, timeout_ms=timeout_ms)
         if isinstance(resp, dict) and resp.get("error"):
             resp2 = await self._call({"action": "POSITIONS"}, timeout_ms=timeout_ms)
@@ -128,7 +152,10 @@ class MT5Connector:
         return resp
 
     async def get_rates(self, symbol: str, timeframe: str, count: int = 300, *, timeout_ms: int = 3500) -> Dict[str, Any]:
-        return await self._call({"action": "RATES", "symbol": symbol, "timeframe": timeframe, "count": int(count)}, timeout_ms=timeout_ms)
+        return await self._call(
+            {"action": "RATES", "symbol": symbol, "timeframe": timeframe, "count": int(count)},
+            timeout_ms=timeout_ms,
+        )
 
 
 mt5_connector = MT5Connector()

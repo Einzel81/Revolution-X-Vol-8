@@ -43,11 +43,6 @@ BEGIN
     PERFORM create_hypertable('trading_signals', 'created_at', if_not_exists => TRUE);
   END IF;
 
-  -- trades(created_at)
-  IF to_regclass('public.trades') IS NOT NULL THEN
-    PERFORM create_hypertable('trades', 'created_at', if_not_exists => TRUE);
-  END IF;
-
   -- mt5_position_snapshots(created_at)
   IF to_regclass('public.mt5_position_snapshots') IS NOT NULL THEN
     PERFORM create_hypertable('mt5_position_snapshots', 'created_at', if_not_exists => TRUE);
@@ -69,9 +64,6 @@ CREATE INDEX IF NOT EXISTS ix_execution_logs_created_at_desc ON execution_logs (
 
 CREATE INDEX IF NOT EXISTS ix_trading_signals_user_created_at ON trading_signals (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_trading_signals_symbol_tf_created_at ON trading_signals (symbol, timeframe, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS ix_trades_user_open_time ON trades (user_id, open_time DESC);
-CREATE INDEX IF NOT EXISTS ix_trades_symbol_open_time ON trades (symbol, open_time DESC);
 
 CREATE INDEX IF NOT EXISTS ix_mt5_pos_account_created_at ON mt5_position_snapshots (account_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_mt5_pos_symbol_created_at ON mt5_position_snapshots (symbol, created_at DESC);

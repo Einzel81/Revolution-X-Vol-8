@@ -217,7 +217,7 @@ class TradingEngine:
 
         # Volume Profile Score
         if vp:
-                        price_position = self.volume_profile.get_price_position(
+            price_position = self.volume_profile.get_price_position(
                 self.smc.data[-1]['close'] if self.smc.data else 0
             )
             if price_position == "below_value_area":
@@ -437,7 +437,7 @@ class TradingEngine:
                 db=db,
                 user_id=str(user_id),
                 source="scanner" if signal.get("reasons") else "engine",
-                                symbol=str(symbol or signal.get("symbol") or "XAUUSD"),
+                symbol=str(symbol or signal.get("symbol") or "XAUUSD"),
                 side=direction,
                 volume=float(position.lots),
                 sl=float(sl) if sl is not None else None,

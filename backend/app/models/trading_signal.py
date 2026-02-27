@@ -14,6 +14,8 @@ class TradingSignal(Base):
     """
     __tablename__ = "trading_signals"
 
+    # TimescaleDB hypertable requirement: partition column must be included
+    # in any PK/UNIQUE constraint. We partition by created_at.
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
@@ -32,4 +34,4 @@ class TradingSignal(Base):
     reasons = Column(JSONB, nullable=True)
     context = Column(JSONB, nullable=True)  # regime/scores/dxy/filters/etc.
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, primary_key=True, default=datetime.datetime.utcnow, nullable=False)

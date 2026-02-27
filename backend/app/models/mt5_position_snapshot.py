@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import datetime
 
-from sqlalchemy import Column, String, Float, DateTime, JSON, UniqueConstraint
+from sqlalchemy import Column, String, Float, DateTime, JSON
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database.connection import Base
@@ -11,10 +11,15 @@ from app.database.connection import Base
 
 class MT5PositionSnapshot(Base):
     __tablename__ = "mt5_position_snapshots"
-    __table_args__ = (UniqueConstraint("account_id", "ticket", name="uq_mt5_pos_account_ticket"),)
+
+    # NOTE (TimescaleDB): this table is intended as a time-series snapshot.
+    # Timescale hypertables cannot have UNIQUE constraints that do not include
+    # the partitioning time column (created_at). We therefore avoid enforcing
+    # uniqueness on (account_id, ticket) at the DB level and treat duplicates
+    # as valid snapshots.
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, primary_key=True, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     account_id = Column(String, nullable=True)

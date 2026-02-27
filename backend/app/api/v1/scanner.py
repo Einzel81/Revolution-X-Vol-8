@@ -18,6 +18,15 @@ async def _get_live_balance() -> float:
 
     Returns balance if present, otherwise equity, otherwise raises.
     """
+    # Quick connectivity check for clearer errors
+    ping_fn = getattr(mt5_connector, "ping", None)
+    if callable(ping_fn):
+        pr = ping_fn()
+        if hasattr(pr, "__await__"):
+            pr = await pr
+        if isinstance(pr, dict) and not pr.get("ok"):
+            raise HTTPException(status_code=503, detail={"ok": False, "error": "mt5_unreachable", "raw": pr})
+
     fn = getattr(mt5_connector, "account_info", None)
     if not callable(fn):
         raise HTTPException(status_code=501, detail="mt5_connector.account_info not implemented")
@@ -26,8 +35,11 @@ async def _get_live_balance() -> float:
     if hasattr(resp, "__await__"):
         resp = await resp
 
-    if isinstance(resp, dict) and resp.get("error"):
-        raise HTTPException(status_code=503, detail={"ok": False, "error": resp.get("error")})
+    # Treat empty error as error too
+    if isinstance(resp, dict) and ("error" in resp) and str(resp.get("error") or "").strip() != "":
+        raise HTTPException(status_code=503, detail={"ok": False, "error": resp.get("error"), "raw": resp})
+    if isinstance(resp, dict) and ("error" in resp) and str(resp.get("error") or "").strip() == "" and not resp.get("ok", True):
+        raise HTTPException(status_code=503, detail={"ok": False, "error": "mt5_bridge_error", "raw": resp})
 
     data = resp
     if isinstance(resp, dict) and isinstance(resp.get("data"), dict):
@@ -44,11 +56,15 @@ async def _get_live_balance() -> float:
     try:
         bal_f = float(bal)
     except Exception:
-        raise HTTPException(status_code=503, detail={"ok": False, "error": "unable_to_parse_balance", "raw": resp})
+        raise HTTPException(
+            status_code=503,
+            detail={"ok": False, "error": "unable_to_parse_balance", "hint": "Check /api/v1/mt5/account and MT5 bridge connectivity", "raw": resp},
+        )
 
     if bal_f <= 0:
         raise HTTPException(status_code=503, detail={"ok": False, "error": "invalid_balance", "raw": resp})
     return bal_f
+
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 

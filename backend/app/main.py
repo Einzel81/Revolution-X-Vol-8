@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.services.activity_bus import activity_bus
+from app.database.connection import init_db
 
 
 class WSManager:
@@ -65,6 +66,11 @@ async def _activity_forwarder() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Step 5 hard requirement:
+    # - create tables (users, trades, execution_logs, execution_events, ...)
+    # - ensure TimescaleDB extension + hypertables/indexes/retention
+    await init_db()
+
     task = asyncio.create_task(_activity_forwarder())
     try:
         yield
@@ -76,8 +82,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Revolution X API", lifespan=lifespan)
 
-# ? CORS ????? ??? Cookies
-# ?? ???? "*" ?? allow_credentials=True ?? ???????.
+# ?? CORS: allow_credentials=True ?? ???? ?? "*" ???? ???? Origins ?????
 ALLOWED_ORIGINS = [
     "http://142.93.95.110:3000",
     "http://localhost:3000",

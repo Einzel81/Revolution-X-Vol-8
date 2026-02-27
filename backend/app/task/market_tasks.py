@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from celery import shared_task
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.connection import AsyncSessionLocal
 from app.models.candle import Candle
@@ -22,41 +23,27 @@ def _to_dt(ts: Any) -> datetime:
         return datetime.utcnow()
 
 
-async def _maybe_await(x: Any) -> Any:
-    if hasattr(x, "__await__"):
-        return await x
-    return x
-
-
-async def _get_rates_safe(symbol: str, timeframe: str, count: int) -> List[Dict[str, Any]]:
-    """
-    ????: get_rates sync ?? async? ????? ?????? List.
-    """
-    res = mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count)
-    res = await _maybe_await(res)
-
-    # ??????? ??? connectors ?????? coroutine ???? coroutine
-    while hasattr(res, "__await__"):
-        res = await res
-
-    if res is None:
-        return []
-    if isinstance(res, list):
-        return res
-    # ?? ??? dict ??? rates
-    if isinstance(res, dict):
-        for k in ("rates", "data", "candles"):
-            v = res.get(k)
+def _normalize_rates(resp: Any) -> List[Dict[str, Any]]:
+    if isinstance(resp, list):
+        return [x for x in resp if isinstance(x, dict)]
+    if isinstance(resp, dict):
+        for k in ("rates", "items", "data"):
+            v = resp.get(k)
             if isinstance(v, list):
-                return v
+                return [x for x in v if isinstance(x, dict)]
+        r2 = resp.get("response")
+        if isinstance(r2, dict):
+            for k in ("rates", "items", "data"):
+                v = r2.get(k)
+                if isinstance(v, list):
+                    return [x for x in v if isinstance(x, dict)]
     return []
 
 
-async def _insert_new_candles(db, symbol: str, timeframe: str, rates: List[Dict[str, Any]]) -> int:
+async def _insert_new_candles(db: AsyncSession, symbol: str, timeframe: str, rates: List[Dict[str, Any]]) -> int:
     inserted = 0
     for r in rates:
         t = _to_dt(r.get("time") or r.get("timestamp"))
-
         exists_q = select(Candle.id).where(
             (Candle.symbol == symbol) & (Candle.timeframe == timeframe) & (Candle.time == t)
         )
@@ -84,11 +71,23 @@ async def _insert_new_candles(db, symbol: str, timeframe: str, rates: List[Dict[
 
 @shared_task(name="app.tasks.market_tasks.ingest_and_scan")
 def ingest_and_scan(symbol: str = "XAUUSD", timeframe: str = "M15", count: int = 200) -> str:
-    async def _run() -> str:
-        rates = await _get_rates_safe(symbol=symbol, timeframe=timeframe, count=count)
-        if not rates:
-            return "no_data"
+    raw: Any = None
 
+    try:
+        raw = mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count)
+    except TypeError:
+        async def _get():
+            return await mt5_connector.get_rates(symbol=symbol, timeframe=timeframe, count=count)
+        raw = asyncio.run(_get())
+
+    if hasattr(raw, "__await__"):
+        raw = asyncio.run(raw)
+
+    rates = _normalize_rates(raw)
+    if not rates:
+        return "no_data"
+
+    async def _run():
         async with AsyncSessionLocal() as db:
             inserted = await _insert_new_candles(db, symbol, timeframe, rates)
 
@@ -100,6 +99,6 @@ def ingest_and_scan(symbol: str = "XAUUSD", timeframe: str = "M15", count: int =
                 "inserted": inserted,
             }
         )
-        return "ok"
 
-    return asyncio.run(_run())
+    asyncio.run(_run())
+    return "ok"

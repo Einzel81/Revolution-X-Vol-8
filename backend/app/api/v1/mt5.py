@@ -48,7 +48,7 @@ def _public_conn(c: Dict[str, Any], active_id: Optional[str]) -> Dict[str, Any]:
         "name": c.get("name"),
         "host": c.get("host"),
         "port": int(c.get("port") or 9000),
-        "token": None,  # ?? ????? ???????
+        "token": None,  # ?? ???? ??????
         "is_active": str(c.get("id")) == str(active_id),
         "created_at": c.get("created_at"),
         "updated_at": c.get("updated_at"),
@@ -56,7 +56,7 @@ def _public_conn(c: Dict[str, Any], active_id: Optional[str]) -> Dict[str, Any]:
 
 
 async def _settings_get(settings: SettingsService, key: str) -> Optional[str]:
-    # ?? ?????? decrypt ??? ????? 500 ??? ??? ???? ??? ?????
+    # ???? ?? decrypt ?? ???? 500 ??? ??? ?????? JSON ????
     try:
         return await settings.get(key, decrypt=False)
     except Exception:
@@ -65,7 +65,7 @@ async def _settings_get(settings: SettingsService, key: str) -> Optional[str]:
 
 async def _settings_set(settings: SettingsService, key: str, val: Any) -> None:
     try:
-        # ???? ?? plain JSON ????? ????? ?????
+        # ???? JSON ??? plain
         await settings.set(key, val, is_secret=False)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"settings error: {e}")
@@ -79,7 +79,7 @@ def _set_endpoint_if_supported(host: str, port: int) -> None:
 
 async def _ping_any() -> Dict[str, Any]:
     """
-    ping ?? ???? sync ?? async — ???? ???????.
+    ping ?? ???? sync ?? async - ?????? ???.
     """
     fn = getattr(mt5_connector, "ping", None)
     if not callable(fn):
@@ -191,7 +191,6 @@ def _unwrap_bridge_payload(resp: Any) -> Dict[str, Any]:
 @router.get("/account")
 async def get_account(db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
     """Return MT5 account info from the active ZMQ bridge."""
-    # Ensure active endpoint is selected (best-effort)
     settings = SettingsService(db)
     conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
     active_id = await _settings_get(settings, KEY_ACTIVE_ID)
@@ -212,7 +211,6 @@ async def get_account(db: AsyncSession = Depends(get_db), user=Depends(require_t
         raise HTTPException(status_code=503, detail={"ok": False, "error": res.get("error")})
 
     data = _unwrap_bridge_payload(res)
-    # Extract common account fields
     out = {
         "balance": data.get("balance"),
         "equity": data.get("equity"),
@@ -254,7 +252,6 @@ async def get_positions(db: AsyncSession = Depends(get_db), user=Depends(require
     if items is None and isinstance(res, list):
         items = res
     if items is None:
-        # some bridges return list directly inside "response"
         items = data if isinstance(data, list) else []
     return {"ok": True, "count": len(items), "items": items, "raw": res, "active_id": active_id, "ts": _now_ms()}
 

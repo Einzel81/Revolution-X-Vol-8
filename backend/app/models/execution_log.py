@@ -15,6 +15,9 @@ class ExecutionLog(Base):
     """
     __tablename__ = "execution_logs"
 
+    # TimescaleDB hypertable requirement:
+    # any PRIMARY KEY / UNIQUE index must include the time partition column.
+    # We partition by created_at, so created_at is part of the composite PK.
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     trade_id = Column(UUID(as_uuid=True), ForeignKey("trades.id"), nullable=False)
 
@@ -28,4 +31,4 @@ class ExecutionLog(Base):
     success = Column(Boolean, default=False, nullable=False)
     error = Column(String(512), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, primary_key=True, default=datetime.datetime.utcnow, nullable=False)

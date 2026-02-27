@@ -14,8 +14,14 @@ class ExecutionEvent(Base):
 
     __tablename__ = "execution_events"
 
+    # NOTE (TimescaleDB): hypertables cannot have UNIQUE/PK constraints that
+    # do NOT include the partitioning time column. We partition by created_at,
+    # therefore created_at must be part of the PRIMARY KEY.
+    #
+    # We keep UUID id for application-level identity, but the DB enforces
+    # uniqueness on (id, created_at) as a composite PK.
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, primary_key=True, default=datetime.datetime.utcnow, nullable=False)
 
     # who triggered
     user_id = Column(String, nullable=True)
