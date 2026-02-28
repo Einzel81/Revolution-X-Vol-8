@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # -----------------------------
     MT5_HOST: str = "localhost"
     MT5_PORT: int = 9000
+    MT5_BRIDGE_TOKEN: str = ""  # shared secret required by EA Bridge
 
     # -----------------------------
     # Telegram
@@ -72,8 +73,8 @@ class Settings(BaseSettings):
     # -----------------------------
     # Execution (MT5)
     # -----------------------------
-    # mt5_zmq | simulated
-    EXECUTION_BRIDGE: str = "simulated"
+    # mt5_tcp_json | simulated
+    EXECUTION_BRIDGE: str = "mt5_tcp_json"
     # order recv timeout
     EXEC_TIMEOUT_MS: int = 2000
     # Guards

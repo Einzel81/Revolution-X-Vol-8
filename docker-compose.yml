@@ -15,6 +15,9 @@ services:
       - SECRET_KEY=${SECRET_KEY:-revolution-x-secret-key}
       - DEBUG=${DEBUG:-false}
       - PYTHONPATH=/app
+      # LIVE MODE
+      - TRADING_MODE=live
+      - EXECUTION_BRIDGE=mt5_tcp_json
       # Telegram Configuration
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_WEBHOOK_URL=${TELEGRAM_WEBHOOK_URL:-https://your-domain.com/api/v1/webhooks/telegram}

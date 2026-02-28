@@ -367,7 +367,8 @@ class TradingEngine:
         # Execution mode
         mode = str(getattr(settings, "TRADING_MODE", "paper")).lower()
         bridge = str(getattr(settings, "EXECUTION_BRIDGE", "simulated")).lower()
-        is_live = (mode == "live" and bridge == "mt5_zmq")
+        # Supported live bridges: mt5_zmq (legacy) and mt5_tcp_json (EA TCP bridge)
+        is_live = (mode == "live" and bridge in ("mt5_zmq", "mt5_tcp_json"))
 
         # Optional persistence objects
         trade_obj = None

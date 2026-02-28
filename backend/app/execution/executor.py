@@ -73,7 +73,8 @@ class ExecutionExecutor:
         bridge = str(getattr(settings, "EXECUTION_BRIDGE", "simulated")).lower()
 
         # Paper mode or simulated bridge => no live execution
-        if mode != "live" or bridge != "mt5_zmq":
+        # Supported live bridges: mt5_zmq (legacy) and mt5_tcp_json (EA TCP bridge)
+        if mode != "live" or bridge not in ("mt5_zmq", "mt5_tcp_json"):
             ev = ExecutionEvent(
                 user_id=str(user_id) if user_id else None,
                 source=source,

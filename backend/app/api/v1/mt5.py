@@ -48,7 +48,7 @@ def _public_conn(c: Dict[str, Any], active_id: Optional[str]) -> Dict[str, Any]:
         "name": c.get("name"),
         "host": c.get("host"),
         "port": int(c.get("port") or 9000),
-        "token": None,  # ?? ???? ??????
+        "token": None,  # ?? ???? ?????? ???????
         "is_active": str(c.get("id")) == str(active_id),
         "created_at": c.get("created_at"),
         "updated_at": c.get("updated_at"),
@@ -56,7 +56,7 @@ def _public_conn(c: Dict[str, Any], active_id: Optional[str]) -> Dict[str, Any]:
 
 
 async def _settings_get(settings: SettingsService, key: str) -> Optional[str]:
-    # ???? ?? decrypt ?? ???? 500 ??? ??? ?????? JSON ????
+    # ???? ???? decrypt ??? ?? ???? 500 ???? JSON
     try:
         return await settings.get(key, decrypt=False)
     except Exception:
@@ -65,7 +65,7 @@ async def _settings_get(settings: SettingsService, key: str) -> Optional[str]:
 
 async def _settings_set(settings: SettingsService, key: str, val: Any) -> None:
     try:
-        # ???? JSON ??? plain
+        # ???? JSON ???? plain
         await settings.set(key, val, is_secret=False)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"settings error: {e}")
@@ -77,9 +77,24 @@ def _set_endpoint_if_supported(host: str, port: int) -> None:
         fn(host, port)
 
 
+def _set_token_if_supported(token: Optional[str]) -> None:
+    fn = getattr(mt5_connector, "set_token", None)
+    if callable(fn):
+        fn(token or "")
+
+
+def _apply_active_connection_to_connector(active: Dict[str, Any]) -> None:
+    host = active.get("host", "localhost")
+    port = int(active.get("port") or 9000)
+    token = active.get("token")
+
+    _set_endpoint_if_supported(host, port)
+    _set_token_if_supported(token)
+
+
 async def _ping_any() -> Dict[str, Any]:
     """
-    ping ?? ???? sync ?? async - ?????? ???.
+    ping ?? ???? sync ?? async - ???? ??? ????????.
     """
     fn = getattr(mt5_connector, "ping", None)
     if not callable(fn):
@@ -92,6 +107,23 @@ async def _ping_any() -> Dict[str, Any]:
     if isinstance(res, dict):
         return res
     return {"ok": True, "response": str(res)}
+
+
+def _unwrap_bridge_payload(resp: Any) -> Dict[str, Any]:
+    """Normalize bridge payload to a dict.
+
+    Some bridges return:
+      - {"ok": True, "data": {...}}
+      - {"response": {...}}
+      - {...} directly
+    """
+    if not isinstance(resp, dict):
+        return {"raw": resp}
+    if "data" in resp and isinstance(resp.get("data"), dict):
+        return resp["data"]
+    if "response" in resp and isinstance(resp.get("response"), dict):
+        return resp["response"]
+    return resp
 
 
 @router.get("/connections")
@@ -128,7 +160,7 @@ async def create_connection(payload: MT5ConnIn, db: AsyncSession = Depends(get_d
 
     if payload.set_active:
         await _settings_set(settings, KEY_ACTIVE_ID, cid)
-        _set_endpoint_if_supported(row["host"], row["port"])
+        _apply_active_connection_to_connector(row)
 
     return {"ok": True, "id": cid, "ts": _now_ms()}
 
@@ -146,7 +178,7 @@ async def activate_connection(conn_id: str, db: AsyncSession = Depends(get_db), 
     await _settings_set(settings, KEY_CONNECTIONS, json.dumps(conns, ensure_ascii=False))
     await _settings_set(settings, KEY_ACTIVE_ID, str(conn_id))
 
-    _set_endpoint_if_supported(found.get("host", "localhost"), int(found.get("port") or 9000))
+    _apply_active_connection_to_connector(found)
     return {"ok": True, "active_id": str(conn_id), "ts": _now_ms()}
 
 
@@ -163,7 +195,7 @@ async def ping_active(db: AsyncSession = Depends(get_db), user=Depends(require_t
     if not active:
         return {"ok": False, "detail": "active connection not found", "ts": _now_ms()}
 
-    _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+    _apply_active_connection_to_connector(active)
 
     resp = await _ping_any()
     resp["active_id"] = active_id
@@ -171,33 +203,17 @@ async def ping_active(db: AsyncSession = Depends(get_db), user=Depends(require_t
     return resp
 
 
-def _unwrap_bridge_payload(resp: Any) -> Dict[str, Any]:
-    """Normalize bridge payload to a dict.
-
-    Some bridges return:
-      - {"ok": True, "data": {...}}
-      - {"response": {...}}
-      - {...} directly
-    """
-    if not isinstance(resp, dict):
-        return {"raw": resp}
-    if "data" in resp and isinstance(resp.get("data"), dict):
-        return resp["data"]
-    if "response" in resp and isinstance(resp.get("response"), dict):
-        return resp["response"]
-    return resp
-
-
 @router.get("/account")
 async def get_account(db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
-    """Return MT5 account info from the active ZMQ bridge."""
+    """Return MT5 account info from the active bridge."""
     settings = SettingsService(db)
     conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
     active_id = await _settings_get(settings, KEY_ACTIVE_ID)
+
     if active_id:
         active = next((c for c in conns if str(c.get("id")) == str(active_id)), None)
         if active:
-            _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+            _apply_active_connection_to_connector(active)
 
     fn = getattr(mt5_connector, "account_info", None)
     if not callable(fn):
@@ -225,14 +241,15 @@ async def get_account(db: AsyncSession = Depends(get_db), user=Depends(require_t
 
 @router.get("/positions")
 async def get_positions(db: AsyncSession = Depends(get_db), user=Depends(require_trader)):
-    """Return MT5 open positions from the active ZMQ bridge."""
+    """Return MT5 open positions from the active bridge."""
     settings = SettingsService(db)
     conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
     active_id = await _settings_get(settings, KEY_ACTIVE_ID)
+
     if active_id:
         active = next((c for c in conns if str(c.get("id")) == str(active_id)), None)
         if active:
-            _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+            _apply_active_connection_to_connector(active)
 
     fn = getattr(mt5_connector, "get_positions", None)
     if not callable(fn):
@@ -262,10 +279,11 @@ async def get_orders(db: AsyncSession = Depends(get_db), user=Depends(require_tr
     settings = SettingsService(db)
     conns = _safe_json_loads(await _settings_get(settings, KEY_CONNECTIONS))
     active_id = await _settings_get(settings, KEY_ACTIVE_ID)
+
     if active_id:
         active = next((c for c in conns if str(c.get("id")) == str(active_id)), None)
         if active:
-            _set_endpoint_if_supported(active.get("host", "localhost"), int(active.get("port") or 9000))
+            _apply_active_connection_to_connector(active)
 
     fn = getattr(mt5_connector, "get_orders", None)
     if not callable(fn):
