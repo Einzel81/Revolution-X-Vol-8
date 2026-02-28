@@ -38,72 +38,48 @@ class Settings(BaseSettings):
     # -----------------------------
     # CORS
     # -----------------------------
-    ALLOWED_HOSTS: List[str] = [
+    ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://frontend:3000",
-        "http://localhost:5173",
-        "http://142.93.95.110:3000",
-        "https://142.93.95.110:3000",
-        "http://142.93.95.110",
-        "https://142.93.95.110",
+        "http://0.0.0.0:3000",
+        "http://localhost",
+        "http://127.0.0.1",
     ]
 
     # -----------------------------
-    # MT5
+    # MT5 Bridge (defaults; can be overridden per-connection)
     # -----------------------------
-    MT5_HOST: str = "localhost"
+    MT5_HOST: str = "127.0.0.1"
     MT5_PORT: int = 9000
-    MT5_BRIDGE_TOKEN: str = ""  # shared secret required by EA Bridge
+    MT5_BRIDGE_TOKEN: str = ""
+
+    # IMPORTANT (LIVE + DOCKER):
+    # If connection uses localhost/127.0.0.1, and API runs in Docker,
+    # translate host to this docker-host gateway (or leave empty to auto-use 172.17.0.1).
+    MT5_DOCKER_HOST: str = ""
+    MT5_RESOLVE_LOCALHOST_IN_DOCKER: bool = True
+
+    # -----------------------------
+    # Trading Mode
+    # -----------------------------
+    TRADING_MODE: str = "paper"  # paper|live
+    EXECUTION_BRIDGE: str = "mt5_tcp_json"
 
     # -----------------------------
     # Telegram
     # -----------------------------
-    TELEGRAM_BOT_TOKEN: Optional[str] = None
-    TELEGRAM_CHAT_ID: Optional[str] = None
-    TELEGRAM_WEBHOOK_SECRET: Optional[str] = None
-    TELEGRAM_WEBHOOK_URL: Optional[str] = None
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_WEBHOOK_URL: str = ""
+    TELEGRAM_WEBHOOK_SECRET: str = ""
 
     # -----------------------------
-    # Trading
+    # SMTP
     # -----------------------------
-    TRADING_MODE: str = "paper"  # paper | live
-    AUTO_START: bool = False
+    SMTP_HOST: str = ""
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
 
-    # -----------------------------
-    # Execution (MT5)
-    # -----------------------------
-    # mt5_tcp_json | simulated
-    EXECUTION_BRIDGE: str = "mt5_tcp_json"
-    # order recv timeout
-    EXEC_TIMEOUT_MS: int = 2000
-    # Guards
-    EXEC_MAX_LATENCY_MS: int = 1500
-    EXEC_MAX_SLIPPAGE: float = 2.5
-
-    # -----------------------------
-    # AI Guardian
-    # -----------------------------
-    GUARDIAN_ENABLED: bool = True
-    GUARDIAN_MODE: str = "semi_auto"  # auto | semi_auto | suggest_only
-    GUARDIAN_LLM_PROVIDER: str = "gpt4"  # gpt4 | claude
-    GUARDIAN_AUTO_FIX: bool = True
-    GUARDIAN_APPROVAL_REQUIRED: bool = True
-    GUARDIAN_LLM_ENABLED: bool = True
-
-    # -----------------------------
-    # API Keys
-    # -----------------------------
-    OPENAI_API_KEY: Optional[str] = None
-    ANTHROPIC_API_KEY: Optional[str] = None
-
-    # -----------------------------
-    # Pydantic v2 Config
-    # -----------------------------
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

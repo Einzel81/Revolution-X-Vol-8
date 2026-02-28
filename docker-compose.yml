@@ -9,12 +9,20 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:pass@postgres:5432/revolution_x
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-revolution-x-secret-key}
       - DEBUG=${DEBUG:-false}
       - PYTHONPATH=/app
+      - MT5_DOCKER_HOST=host.docker.internal
+      # CORS (?? ????? ???? ??????)
+      - CORS_ORIGINS=http://142.93.95.110:3000,http://localhost:3000
+      # Security / JWT (??? ?????? ?? config)
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=30
       # LIVE MODE
       - TRADING_MODE=live
       - EXECUTION_BRIDGE=mt5_tcp_json
